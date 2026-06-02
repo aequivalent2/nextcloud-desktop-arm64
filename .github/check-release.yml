@@ -1,0 +1,42 @@
+name: Check for new Nextcloud Release
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest Nextcloud release
+        id: nextcloud
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/nextcloud/desktop/releases/latest \
+            | jq -r .tag_name)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Latest Nextcloud: $VERSION"
+
+      - name: Get last built version
+        id: last_built
+        run: |
+          LAST=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest \
+            | jq -r '.tag_name // "none"' | sed 's/-arm64//')
+          echo "version=$LAST" >> $GITHUB_OUTPUT
+          echo "Last built: $LAST"
+
+      - name: Trigger build if new version available
+        if: steps.nextcloud.outputs.version != steps.last_built.outputs.version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('New version detected, triggering build...');
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build.yml',
+              ref: 'main',
+              inputs: {
+                nextcloud_version: '${{ steps.nextcloud.outputs.version }}'
+              }
+            });
