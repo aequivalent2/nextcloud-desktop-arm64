@@ -40,6 +40,7 @@ PKCS11_CTX_init_args
 PKCS11_CTX_new_ex
 "@ | Set-Content libp11_all.def
 
+# /IMPLIB schreibt libp11.lib direkt nach C:\build\libp11-arm64
 link.exe /DLL /NOLOGO /MACHINE:ARM64 `
     /OUT:C:\build\libp11-arm64\libp11.dll `
     /IMPLIB:C:\build\libp11-arm64\libp11.lib `
@@ -47,7 +48,10 @@ link.exe /DLL /NOLOGO /MACHINE:ARM64 `
     C:\build\openssl-arm64\lib\libcrypto.lib `
     ws2_32.lib user32.lib advapi32.lib crypt32.lib
 
-Copy-Item libp11.lib C:\build\libp11-arm64\p11.lib
+# libp11.lib liegt bereits in C:\build\libp11-arm64, p11.lib als Alias
+Copy-Item C:\build\libp11-arm64\libp11.lib C:\build\libp11-arm64\p11.lib
+
+# Header kopieren
 Copy-Item libp11.h, p11_ver.h, p11_err.h, pkcs11.h C:\build\libp11-arm64\
 
 # pkgconfig
