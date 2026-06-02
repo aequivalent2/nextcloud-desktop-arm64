@@ -32,7 +32,7 @@ jobs:
           perl --version
 
       # ─────────────────────────────────────────────
-      # 3. Python + aqt direkt aufrufen
+      # 3. Python + aqt
       # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -115,7 +115,7 @@ jobs:
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 9. OpenSSL (gecacht)
+      # 9. OpenSSL (gecacht, auch bei Fehler speichern)
       # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
@@ -123,6 +123,7 @@ jobs:
         with:
           path: C:\build\openssl-arm64
           key: openssl-3.3-arm64-${{ runner.os }}-v3
+          save-always: true
 
       - name: Build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -130,7 +131,7 @@ jobs:
         run: .\scripts\build-openssl.ps1
 
       # ─────────────────────────────────────────────
-      # 10. libp11 (gecacht) — v4: alten fehlerhaften Cache invalidieren
+      # 10. libp11 (gecacht, auch bei Fehler speichern)
       # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
@@ -138,6 +139,7 @@ jobs:
         with:
           path: C:\build\libp11-arm64
           key: libp11-0.4.12-arm64-${{ runner.os }}-v4
+          save-always: true
 
       - name: Build libp11
         if: steps.cache-libp11.outputs.cache-hit != 'true'
@@ -145,7 +147,7 @@ jobs:
         run: .\scripts\build-libp11.ps1
 
       # ─────────────────────────────────────────────
-      # 11. Weitere Abhängigkeiten (gecacht)
+      # 11. Weitere Abhängigkeiten (gecacht, auch bei Fehler speichern)
       # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
@@ -153,6 +155,7 @@ jobs:
         with:
           path: C:\build\deps-arm64
           key: deps-arm64-${{ runner.os }}-v3
+          save-always: true
 
       - name: Build Dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -185,10 +188,12 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 14. CMake konfigurieren
+      #     cmake direkt + Qt-Toolchain (qt-cmake.bat existiert nicht im cross-compiled Kit)
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
         run: |
+          $QtToolchain = "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\lib\cmake\Qt6\qt.toolchain.cmake"
           $env:PKG_CONFIG_PATH = "C:\build\libp11-arm64"
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
 
@@ -203,10 +208,10 @@ jobs:
             )
           }
 
-          & "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin\qt-cmake.bat" `
-            C:\build\nextcloud-src `
+          cmake C:\build\nextcloud-src `
             -B C:\build\nextcloud-build `
             -G Ninja `
+            "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX=C:\build\nextcloud-arm64 `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
@@ -214,7 +219,7 @@ jobs:
             "-DQt6Keychain_DIR=C:\build\deps-arm64\qtkeychain\lib\cmake\Qt6Keychain" `
             "-DKF6Archive_DIR=C:\build\deps-arm64\kf6archive\lib\cmake\KF6Archive" `
             "-DKDSingleApplication-qt6_DIR=C:\build\deps-arm64\kdsingleapp\lib\cmake\KDSingleApplication-qt6" `
-            "-DCMAKE_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=arm64-windows `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
