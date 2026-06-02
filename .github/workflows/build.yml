@@ -15,13 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Strawberry Perl
+      - name: Setup Perl
         shell: pwsh
         run: |
-          $url = "https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54001_64bit_UCRT/strawberry-perl-5.40.0.1-64bit-portable.zip"
-          Invoke-WebRequest $url -OutFile perl.zip
-          Expand-Archive perl.zip -DestinationPath C:\strawberry
-          $env:PATH = "C:\strawberry\perl\bin;" + $env:PATH
+          # Strawberry Perl ist bereits vorinstalliert
+          $env:PATH = "C:\Strawberry\perl\bin;C:\Strawberry\c\bin;" + $env:PATH
           perl --version
 
       - name: Install Qt ARM64
