@@ -32,9 +32,9 @@ jobs:
           perl --version
 
       # ─────────────────────────────────────────────
-      # 3. Python + aqt
-      #    OS-Parameter = "windows", Arch = win64_msvc2022_arm64
-      #    Kein install-qt-action – aqt direkt aufrufen
+      # 3. Python + aqt direkt aufrufen
+      #    OS-Parameter = "windows", Arch = win64_msvc2022_arm64_cross_compiled
+      #    --autodesktop installiert benötigtes x64-Qt automatisch
       # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -47,33 +47,35 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 4. Qt ARM64 installieren
-      #    Nativer ARM64-Runner → nur ein Qt-Install
-      #    nötig, kein QT_HOST_PATH / x64-Qt erforderlich
+      #    Qt 6.11.1 ist noch nicht im aqt-Mirror →
+      #    Qt 6.9.0 verwenden
+      #    Korrekte Arch: win64_msvc2022_arm64_cross_compiled
       # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
         run: |
-          python -m aqt install-qt windows desktop 6.11.1 win64_msvc2022_arm64 `
+          python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64_cross_compiled `
             --outputdir C:\Qt `
+            --autodesktop `
             --modules qt5compat qtpositioning qtwebsockets
 
-      - name: Install Qt ARM64 – WebEngine (best effort)
+      - name: Install Qt ARM64 - WebEngine (best effort)
         shell: pwsh
         run: |
-          $modules = python -m aqt list-qt windows desktop --modules 6.11.1 win64_msvc2022_arm64
+          $modules = python -m aqt list-qt windows desktop --modules 6.9.0 win64_msvc2022_arm64_cross_compiled
           if ($modules -match "qtwebengine") {
-            Write-Host "qtwebengine verfügbar – wird installiert"
-            python -m aqt install-qt windows desktop 6.11.1 win64_msvc2022_arm64 `
-              --outputdir C:\Qt --modules qtwebengine
+            Write-Host "qtwebengine verfügbar - wird installiert"
+            python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64_cross_compiled `
+              --outputdir C:\Qt --autodesktop --modules qtwebengine
           } else {
-            Write-Warning "qtwebengine nicht verfügbar für Qt 6.11.1 ARM64 – Build ohne WebEngine"
+            Write-Warning "qtwebengine nicht verfügbar für Qt 6.9.0 ARM64 - Build ohne WebEngine"
             echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
           }
 
       - name: Add Qt to PATH
         shell: pwsh
         run: |
-          "C:\Qt\6.11.1\msvc2022_arm64\bin" | Add-Content $env:GITHUB_PATH
+          "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
       # 5. CMake + Ninja
@@ -189,7 +191,6 @@ jobs:
       # ─────────────────────────────────────────────
       # 14. CMake konfigurieren
       #    - qt-cmake.bat aus ARM64-Qt läuft nativ
-      #    - Kein QT_HOST_PATH nötig (nativer ARM64-Runner)
       #    - WebEngine optional je nach Schritt 4
       # ─────────────────────────────────────────────
       - name: Configure
@@ -204,12 +205,12 @@ jobs:
             $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
           } else {
             $webEngineArgs = @(
-              "-DQt6WebEngineCore_DIR=C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6WebEngineCore",
-              "-DQt6WebEngineWidgets_DIR=C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6WebEngineWidgets"
+              "-DQt6WebEngineCore_DIR=C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\lib\cmake\Qt6WebEngineCore",
+              "-DQt6WebEngineWidgets_DIR=C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\lib\cmake\Qt6WebEngineWidgets"
             )
           }
 
-          & "C:\Qt\6.11.1\msvc2022_arm64\bin\qt-cmake.bat" `
+          & "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin\qt-cmake.bat" `
             C:\build\nextcloud-src `
             -B C:\build\nextcloud-build `
             -G Ninja `
@@ -242,9 +243,9 @@ jobs:
           cmake --install C:\build\nextcloud-build
 
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
-            C:\Qt\6.11.1\msvc2022_arm64\bin\
+            C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin\
 
-          & "C:\Qt\6.11.1\msvc2022_arm64\bin\windeployqt.exe" `
+          & "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin\windeployqt.exe" `
             C:\build\nextcloud-arm64\bin\nextcloud.exe
 
           Copy-Item C:\build\libp11-arm64\libp11.dll `
