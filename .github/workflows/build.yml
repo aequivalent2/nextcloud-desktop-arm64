@@ -7,79 +7,150 @@ on:
         description: 'Nextcloud Version (z.B. v3.14.0)'
         required: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-11-arm
 
     steps:
+      # ─────────────────────────────────────────────
+      # 1. Checkout
+      # ─────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ─────────────────────────────────────────────
+      # 2. Perl PATH dauerhaft setzen
+      # ─────────────────────────────────────────────
       - name: Setup Perl
         shell: pwsh
         run: |
-          # Strawberry Perl ist bereits vorinstalliert
-          $env:PATH = "C:\Strawberry\perl\bin;C:\Strawberry\c\bin;" + $env:PATH
+          "C:\Strawberry\perl\bin" | Add-Content $env:GITHUB_PATH
+          "C:\Strawberry\c\bin"    | Add-Content $env:GITHUB_PATH
           perl --version
 
+      # ─────────────────────────────────────────────
+      # 3. Qt ARM64 (ohne qtwebengine – nicht als
+      #    vorgefertigtes ARM64-Paket verfügbar)
+      # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.11.1'
           arch: 'win64_msvc2022_arm64'
-          modules: 'qt5compat qtwebengine qtpositioning qtwebsockets'
+          modules: 'qt5compat qtpositioning qtwebsockets'
+          dir: 'C:\Qt'
+          add-tools-to-path: false
 
+      # ─────────────────────────────────────────────
+      # 4. Qt x64 Host-Tools + WebEngine
+      #    windeployqt, qt-cmake etc. laufen als x64
+      #    auf dem Runner – ARM64-Binaries würden nicht
+      #    starten.
+      # ─────────────────────────────────────────────
+      - name: Install Qt x64 (Host-Tools + WebEngine)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.1'
+          arch: 'win64_msvc2022_64'
+          modules: 'qt5compat qtwebengine qtpositioning qtwebsockets'
+          dir: 'C:\Qt'
+          add-tools-to-path: true   # x64-Tools (windeployqt, etc.) auf PATH
+
+      # ─────────────────────────────────────────────
+      # 5. CMake + Ninja
+      # ─────────────────────────────────────────────
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
+      # ─────────────────────────────────────────────
+      # 6. pkg-config (mit Fallback)
+      # ─────────────────────────────────────────────
       - name: Install pkg-config
         shell: pwsh
         run: |
           choco install pkgconfiglite -y --no-progress
+          # Sicherstellen, dass pkg-config auf PATH liegt
+          $found = Get-Command pkg-config -ErrorAction SilentlyContinue
+          if (-not $found) {
+            Write-Warning "pkgconfiglite nicht auf PATH – versuche manuellen Fallback"
+            $chocoLib = "C:\ProgramData\chocolatey\lib\pkgconfiglite\tools"
+            if (Test-Path $chocoLib) {
+              $chocoLib | Add-Content $env:GITHUB_PATH
+            } else {
+              throw "pkg-config konnte nicht installiert werden"
+            }
+          }
 
+      # ─────────────────────────────────────────────
+      # 7. MSVC ARM64 Cross-Compiler
+      # ─────────────────────────────────────────────
       - name: Setup MSVC ARM64
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64_arm64
 
+      # ─────────────────────────────────────────────
+      # 8. vcpkg bootstrappen + SQLite für ARM64
+      # ─────────────────────────────────────────────
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git C:\build\vcpkg --depth 1
+          C:\build\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          C:\build\vcpkg\vcpkg.exe install sqlite3:arm64-windows --no-print-usage
+          "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
+
+      # ─────────────────────────────────────────────
+      # 9. OpenSSL (gecacht)
+      # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
         uses: actions/cache@v4
         with:
           path: C:\build\openssl-arm64
-          key: openssl-3.3-arm64-v3
+          key: openssl-3.3-arm64-${{ runner.os }}-v3
 
       - name: Build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
         shell: pwsh
-        run: |
-          $env:PATH = "C:\strawberry\perl\bin;" + $env:PATH
-          .\scripts\build-openssl.ps1
+        run: .\scripts\build-openssl.ps1
 
+      # ─────────────────────────────────────────────
+      # 10. libp11 (gecacht)
+      # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
         uses: actions/cache@v4
         with:
           path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-v3
+          key: libp11-0.4.12-arm64-${{ runner.os }}-v3
 
       - name: Build libp11
         if: steps.cache-libp11.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-libp11.ps1
 
+      # ─────────────────────────────────────────────
+      # 11. Weitere Abhängigkeiten (gecacht)
+      # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
         uses: actions/cache@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-v3
+          key: deps-arm64-${{ runner.os }}-v3
 
       - name: Build Dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-deps.ps1
 
+      # ─────────────────────────────────────────────
+      # 12. Nextcloud Desktop klonen
+      # ─────────────────────────────────────────────
       - name: Clone Nextcloud
         shell: pwsh
         run: |
@@ -91,6 +162,9 @@ jobs:
           git clone https://github.com/KDAB/KDSingleApplication.git `
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
+      # ─────────────────────────────────────────────
+      # 13. Patches anwenden
+      # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
         run: |
@@ -98,18 +172,26 @@ jobs:
           git apply $env:GITHUB_WORKSPACE\patches\001-cmake-optional-type.patch
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
 
+      # ─────────────────────────────────────────────
+      # 14. CMake konfigurieren
+      #    - Qt-Toolchain-File statt qt-cmake.bat
+      #      (qt-cmake.bat existiert nicht für ARM64-Target)
+      #    - WebEngine-CMake-Dirs zeigen auf x64-Install
+      #      (cross-referenziert für den Build)
+      # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
         run: |
           $env:PKG_CONFIG_PATH = "C:\build\libp11-arm64"
-          $env:PATH = "C:\Qt\6.11.1\msvc2022_arm64\bin;" + $env:PATH
-          mkdir C:\build\nextcloud-build
-          & "C:\Qt\6.11.1\msvc2022_arm64\bin\qt-cmake.bat" `
+          New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
+
+          cmake `
             C:\build\nextcloud-src `
             -B C:\build\nextcloud-build `
             -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX=C:\build\nextcloud-arm64 `
+            "-DCMAKE_TOOLCHAIN_FILE=C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6\qt.toolchain.cmake" `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
             "-DQt6Keychain_DIR=C:\build\deps-arm64\qtkeychain\lib\cmake\Qt6Keychain" `
@@ -119,21 +201,42 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=arm64-windows `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
-            "-DQt6WebEngineCore_DIR=C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6WebEngineCore" `
-            "-DQt6WebEngineWidgets_DIR=C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6WebEngineWidgets"
+            "-DQt6WebEngineCore_DIR=C:\Qt\6.11.1\msvc2022_64\lib\cmake\Qt6WebEngineCore" `
+            "-DQt6WebEngineWidgets_DIR=C:\Qt\6.11.1\msvc2022_64\lib\cmake\Qt6WebEngineWidgets"
 
+      # ─────────────────────────────────────────────
+      # 15. Bauen (parallele Jobs begrenzen)
+      # ─────────────────────────────────────────────
       - name: Build
-        run: cmake --build C:\build\nextcloud-build --parallel
+        run: cmake --build C:\build\nextcloud-build --parallel 4
 
+      # ─────────────────────────────────────────────
+      # 16. Installieren + Deployment
+      #    - x64-windeployqt zeigt via --qtdir auf
+      #      ARM64-Qt (kann ARM64-Binaries analysieren)
+      # ─────────────────────────────────────────────
       - name: Install and Deploy
         shell: pwsh
         run: |
           cmake --install C:\build\nextcloud-build
-          Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll C:\Qt\6.11.1\msvc2022_arm64\bin\
-          & "C:\Qt\6.11.1\msvc2022_arm64\bin\windeployqt.exe" C:\build\nextcloud-arm64\bin\nextcloud.exe
-          Copy-Item C:\build\libp11-arm64\libp11.dll C:\build\nextcloud-arm64\bin\
-          Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll C:\build\nextcloud-arm64\bin\
 
+          # Abhängigkeiten kopieren
+          Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
+            C:\Qt\6.11.1\msvc2022_arm64\bin\
+
+          # x64-windeployqt mit ARM64-Qt-Dir verwenden
+          & "C:\Qt\6.11.1\msvc2022_64\bin\windeployqt.exe" `
+            --qtdir "C:\Qt\6.11.1\msvc2022_arm64" `
+            C:\build\nextcloud-arm64\bin\nextcloud.exe
+
+          Copy-Item C:\build\libp11-arm64\libp11.dll `
+            C:\build\nextcloud-arm64\bin\
+          Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll `
+            C:\build\nextcloud-arm64\bin\
+
+      # ─────────────────────────────────────────────
+      # 17. ZIP erstellen
+      # ─────────────────────────────────────────────
       - name: Create ZIP
         shell: pwsh
         run: |
@@ -141,9 +244,13 @@ jobs:
           Compress-Archive -Path C:\build\nextcloud-arm64\* `
             -DestinationPath "Nextcloud-${version}-arm64-portable.zip"
 
+      # ─────────────────────────────────────────────
+      # 18. Release veröffentlichen
+      # ─────────────────────────────────────────────
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ github.event.inputs.nextcloud_version }}-arm64
           name: "Nextcloud ${{ github.event.inputs.nextcloud_version }} ARM64 (inoffiziell)"
           body: |
