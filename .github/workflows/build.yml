@@ -6,8 +6,6 @@ on:
       nextcloud_version:
         description: 'Nextcloud Version (z.B. v3.14.0)'
         required: true
-  push:
-    branches: [main]
 
 jobs:
   build:
@@ -17,11 +15,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Visual Studio ARM64
-        uses: microsoft/setup-msbuild@v2
-
       - name: Install Strawberry Perl
-        run: winget install StrawberryPerl.StrawberryPerl --silent --accept-package-agreements --accept-source-agreements
+        shell: pwsh
+        run: |
+          $url = "https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54001_64bit_UCRT/strawberry-perl-5.40.0.1-64bit-portable.zip"
+          Invoke-WebRequest $url -OutFile perl.zip
+          Expand-Archive perl.zip -DestinationPath C:\strawberry
+          $env:PATH = "C:\strawberry\perl\bin;" + $env:PATH
+          perl --version
 
       - name: Install Qt ARM64
         uses: jurplel/install-qt-action@v4
@@ -30,31 +31,39 @@ jobs:
           arch: 'win64_msvc2022_arm64'
           modules: 'qt5compat qtwebengine qtpositioning qtwebsockets'
 
-      - name: Install tools
+      - name: Install CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Install pkg-config
+        shell: pwsh
         run: |
-          winget install Kitware.CMake --silent --accept-package-agreements --accept-source-agreements
-          winget install Ninja-build.Ninja --silent --accept-package-agreements --accept-source-agreements
-          winget install Chocolatey.Chocolatey --silent --accept-package-agreements --accept-source-agreements
-          choco install pkgconfiglite -y
+          choco install pkgconfiglite -y --no-progress
+
+      - name: Setup MSVC ARM64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
 
       - name: Cache OpenSSL
         id: cache-openssl
         uses: actions/cache@v4
         with:
           path: C:\build\openssl-arm64
-          key: openssl-3.3-arm64-v2
+          key: openssl-3.3-arm64-v3
 
       - name: Build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
         shell: pwsh
-        run: .\scripts\build-openssl.ps1
+        run: |
+          $env:PATH = "C:\strawberry\perl\bin;" + $env:PATH
+          .\scripts\build-openssl.ps1
 
       - name: Cache libp11
         id: cache-libp11
         uses: actions/cache@v4
         with:
           path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-v2
+          key: libp11-0.4.12-arm64-v3
 
       - name: Build libp11
         if: steps.cache-libp11.outputs.cache-hit != 'true'
@@ -66,7 +75,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-v2
+          key: deps-arm64-v3
 
       - name: Build Dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -79,7 +88,7 @@ jobs:
           $version = "${{ github.event.inputs.nextcloud_version }}"
           git clone https://github.com/nextcloud/desktop.git `
             --branch $version --depth 1 C:\build\nextcloud-src
-          cd C:\build\nextcloud-src
+          Set-Location C:\build\nextcloud-src
           git submodule update --init --recursive
           git clone https://github.com/KDAB/KDSingleApplication.git `
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
@@ -87,15 +96,15 @@ jobs:
       - name: Apply Patches
         shell: pwsh
         run: |
-          cd C:\build\nextcloud-src
+          Set-Location C:\build\nextcloud-src
           git apply $env:GITHUB_WORKSPACE\patches\001-cmake-optional-type.patch
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
 
       - name: Configure
         shell: pwsh
         run: |
-          $env:PATH = "C:\Qt\6.11.1\msvc2022_arm64\bin;" + $env:PATH
           $env:PKG_CONFIG_PATH = "C:\build\libp11-arm64"
+          $env:PATH = "C:\Qt\6.11.1\msvc2022_arm64\bin;" + $env:PATH
           mkdir C:\build\nextcloud-build
           & "C:\Qt\6.11.1\msvc2022_arm64\bin\qt-cmake.bat" `
             C:\build\nextcloud-src `
@@ -118,11 +127,11 @@ jobs:
       - name: Build
         run: cmake --build C:\build\nextcloud-build --parallel
 
-      - name: Install & Deploy
+      - name: Install and Deploy
         shell: pwsh
         run: |
           cmake --install C:\build\nextcloud-build
-          Copy-Item C:\dev\qtkeychain-arm64\bin\qt6keychain.dll C:\Qt\6.11.1\msvc2022_arm64\bin\
+          Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll C:\Qt\6.11.1\msvc2022_arm64\bin\
           & "C:\Qt\6.11.1\msvc2022_arm64\bin\windeployqt.exe" C:\build\nextcloud-arm64\bin\nextcloud.exe
           Copy-Item C:\build\libp11-arm64\libp11.dll C:\build\nextcloud-arm64\bin\
           Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll C:\build\nextcloud-arm64\bin\
@@ -142,16 +151,12 @@ jobs:
           body: |
             ## Nextcloud Desktop ARM64 – Inoffizieller Build
 
-            Nativer ARM64-Build für Windows ARM64 Geräte (Surface Pro X/11, Snapdragon X Laptops).
+            Nativer ARM64-Build für Windows ARM64 Geräte.
 
             ### Installation
             1. ZIP herunterladen und entpacken
             2. `nextcloud.exe` starten
 
-            ### Getestet auf
-            - Windows 11 ARM64
-
             ### Hinweis
             Dies ist kein offizielles Nextcloud-Produkt.
-            Quellcode: https://github.com/nextcloud/desktop (GPL-2.0)
           files: "*.zip"
