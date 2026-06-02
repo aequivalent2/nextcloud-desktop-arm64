@@ -67,10 +67,19 @@ jobs:
             echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
           }
 
-      - name: Add Qt to PATH
+      # Qt-Pfad dynamisch ermitteln und als Env-Variable exportieren
+      - name: Detect Qt ARM64 path
+        id: qt-path
         shell: pwsh
         run: |
-          "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin" | Add-Content $env:GITHUB_PATH
+          $QtBase = "C:\Qt\6.9.0"
+          $QtDir = Get-ChildItem $QtBase -Directory | Where-Object { $_.Name -like "*arm64*" } | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $QtDir) {
+            throw "Qt ARM64-Verzeichnis nicht gefunden. Verfuegbar: $(Get-ChildItem $QtBase -Directory | Select-Object -ExpandProperty Name)"
+          }
+          Write-Host "Qt ARM64 gefunden: $QtDir"
+          echo "QT_ARM64_DIR=$QtDir" >> $env:GITHUB_ENV
+          echo "$QtDir\bin" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
       # 5. CMake + Ninja
@@ -115,52 +124,70 @@ jobs:
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 9. OpenSSL (gecacht, auch bei Fehler speichern)
+      # 9. OpenSSL (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
         uses: actions/cache@v4
         with:
           path: C:\build\openssl-arm64
-          key: openssl-3.3-arm64-${{ runner.os }}-v3
-          save-always: true
+          key: openssl-3.3-arm64-${{ runner.os }}-v4
 
       - name: Build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-openssl.ps1
 
+      - name: Save OpenSSL Cache
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\build\openssl-arm64
+          key: openssl-3.3-arm64-${{ runner.os }}-v4
+
       # ─────────────────────────────────────────────
-      # 10. libp11 (gecacht, auch bei Fehler speichern)
+      # 10. libp11 (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
         uses: actions/cache@v4
         with:
           path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-${{ runner.os }}-v4
-          save-always: true
+          key: libp11-0.4.12-arm64-${{ runner.os }}-v5
 
       - name: Build libp11
         if: steps.cache-libp11.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-libp11.ps1
 
+      - name: Save libp11 Cache
+        if: steps.cache-libp11.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\build\libp11-arm64
+          key: libp11-0.4.12-arm64-${{ runner.os }}-v5
+
       # ─────────────────────────────────────────────
-      # 11. Weitere Abhängigkeiten (gecacht, auch bei Fehler speichern)
+      # 11. Weitere Abhängigkeiten (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
         uses: actions/cache@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-${{ runner.os }}-v3
-          save-always: true
+          key: deps-arm64-${{ runner.os }}-v4
 
       - name: Build Dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-deps.ps1
+
+      - name: Save Dependencies Cache
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\build\deps-arm64
+          key: deps-arm64-${{ runner.os }}-v4
 
       # ─────────────────────────────────────────────
       # 12. Nextcloud Desktop klonen
@@ -188,12 +215,11 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 14. CMake konfigurieren
-      #     cmake direkt + Qt-Toolchain (qt-cmake.bat existiert nicht im cross-compiled Kit)
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
         run: |
-          $QtToolchain = "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\lib\cmake\Qt6\qt.toolchain.cmake"
+          $QtToolchain = "$env:QT_ARM64_DIR\lib\cmake\Qt6\qt.toolchain.cmake"
           $env:PKG_CONFIG_PATH = "C:\build\libp11-arm64"
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
 
@@ -203,8 +229,8 @@ jobs:
             $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
           } else {
             $webEngineArgs = @(
-              "-DQt6WebEngineCore_DIR=C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\lib\cmake\Qt6WebEngineCore",
-              "-DQt6WebEngineWidgets_DIR=C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\lib\cmake\Qt6WebEngineWidgets"
+              "-DQt6WebEngineCore_DIR=$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineCore",
+              "-DQt6WebEngineWidgets_DIR=$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineWidgets"
             )
           }
 
@@ -240,9 +266,9 @@ jobs:
           cmake --install C:\build\nextcloud-build
 
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
-            C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin\
+            "$env:QT_ARM64_DIR\bin\"
 
-          & "C:\Qt\6.9.0\msvc2022_arm64_cross_compiled\bin\windeployqt.exe" `
+          & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
             C:\build\nextcloud-arm64\bin\nextcloud.exe
 
           Copy-Item C:\build\libp11-arm64\libp11.dll `
