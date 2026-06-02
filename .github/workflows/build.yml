@@ -33,8 +33,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 3. Python + aqt direkt aufrufen
-      #    OS-Parameter = "windows", Arch = win64_msvc2022_arm64_cross_compiled
-      #    --autodesktop installiert benötigtes x64-Qt automatisch
       # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -47,9 +45,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 4. Qt ARM64 installieren
-      #    Qt 6.11.1 ist noch nicht im aqt-Mirror →
-      #    Qt 6.9.0 verwenden
-      #    Korrekte Arch: win64_msvc2022_arm64_cross_compiled
       # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
@@ -135,14 +130,14 @@ jobs:
         run: .\scripts\build-openssl.ps1
 
       # ─────────────────────────────────────────────
-      # 10. libp11 (gecacht)
+      # 10. libp11 (gecacht) — v4: alten fehlerhaften Cache invalidieren
       # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
         uses: actions/cache@v4
         with:
           path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-${{ runner.os }}-v3
+          key: libp11-0.4.12-arm64-${{ runner.os }}-v4
 
       - name: Build libp11
         if: steps.cache-libp11.outputs.cache-hit != 'true'
@@ -190,8 +185,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 14. CMake konfigurieren
-      #    - qt-cmake.bat aus ARM64-Qt läuft nativ
-      #    - WebEngine optional je nach Schritt 4
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
@@ -235,7 +228,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 16. Installieren + Deployment
-      #    windeployqt aus ARM64-Qt läuft nativ
       # ─────────────────────────────────────────────
       - name: Install and Deploy
         shell: pwsh
