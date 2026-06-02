@@ -32,9 +32,9 @@ jobs:
           perl --version
 
       # ─────────────────────────────────────────────
-      # 3. Python + aqt direkt (kein install-qt-action)
-      #    OS-Parameter muss "windows" sein, nicht
-      #    "windows_arm64" – sonst findet aqt keine Pakete
+      # 3. Python + aqt
+      #    OS-Parameter = "windows", Arch = win64_msvc2022_arm64
+      #    Kein install-qt-action – aqt direkt aufrufen
       # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -47,9 +47,8 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 4. Qt ARM64 installieren
-      #    OS=windows, Arch=win64_msvc2022_arm64
-      #    qtwebengine wird separat versucht – falls
-      #    nicht verfügbar, bricht der Build NICHT ab
+      #    Nativer ARM64-Runner → nur ein Qt-Install
+      #    nötig, kein QT_HOST_PATH / x64-Qt erforderlich
       # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
@@ -61,51 +60,37 @@ jobs:
       - name: Install Qt ARM64 – WebEngine (best effort)
         shell: pwsh
         run: |
-          $result = python -m aqt list-qt windows desktop --modules 6.11.1 win64_msvc2022_arm64
-          if ($result -match "qtwebengine") {
-            Write-Host "qtwebengine gefunden – wird installiert"
+          $modules = python -m aqt list-qt windows desktop --modules 6.11.1 win64_msvc2022_arm64
+          if ($modules -match "qtwebengine") {
+            Write-Host "qtwebengine verfügbar – wird installiert"
             python -m aqt install-qt windows desktop 6.11.1 win64_msvc2022_arm64 `
               --outputdir C:\Qt --modules qtwebengine
           } else {
-            Write-Warning "qtwebengine nicht verfügbar für win64_msvc2022_arm64 in Qt 6.11.1 – wird übersprungen"
-            Write-Host "##[notice]Nextcloud wird ohne WebEngine gebaut (-DBUILD_WITH_WEBENGINE=OFF)"
+            Write-Warning "qtwebengine nicht verfügbar für Qt 6.11.1 ARM64 – Build ohne WebEngine"
+            echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
           }
 
-      # ─────────────────────────────────────────────
-      # 5. Qt x64 Host-Tools (moc, rcc, uic)
-      #    Qt-interne Build-Generatoren werden als
-      #    x64-Executables ausgeliefert – auch auf
-      #    ARM64-Runnern wird QT_HOST_PATH benötigt
-      # ─────────────────────────────────────────────
-      - name: Install Qt x64 Host-Tools
-        shell: pwsh
-        run: |
-          python -m aqt install-qt windows desktop 6.11.1 win64_msvc2022_64 `
-            --outputdir C:\Qt
-
-      # Qt-Pfade auf PATH setzen
       - name: Add Qt to PATH
         shell: pwsh
         run: |
           "C:\Qt\6.11.1\msvc2022_arm64\bin" | Add-Content $env:GITHUB_PATH
-          "C:\Qt\6.11.1\msvc2022_64\bin"    | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 6. CMake + Ninja
+      # 5. CMake + Ninja
       # ─────────────────────────────────────────────
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
       # ─────────────────────────────────────────────
-      # 7. MSVC ARM64 Cross-Compiler
+      # 6. MSVC ARM64
       # ─────────────────────────────────────────────
       - name: Setup MSVC ARM64
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: amd64_arm64
+          arch: arm64
 
       # ─────────────────────────────────────────────
-      # 8. pkg-config
+      # 7. pkg-config
       # ─────────────────────────────────────────────
       - name: Install pkg-config
         shell: pwsh
@@ -122,7 +107,7 @@ jobs:
           }
 
       # ─────────────────────────────────────────────
-      # 9. vcpkg bootstrappen + SQLite für ARM64
+      # 8. vcpkg + SQLite für ARM64
       # ─────────────────────────────────────────────
       - name: Bootstrap vcpkg
         shell: pwsh
@@ -133,7 +118,7 @@ jobs:
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 10. OpenSSL (gecacht)
+      # 9. OpenSSL (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
@@ -148,7 +133,7 @@ jobs:
         run: .\scripts\build-openssl.ps1
 
       # ─────────────────────────────────────────────
-      # 11. libp11 (gecacht)
+      # 10. libp11 (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
@@ -163,7 +148,7 @@ jobs:
         run: .\scripts\build-libp11.ps1
 
       # ─────────────────────────────────────────────
-      # 12. Weitere Abhängigkeiten (gecacht)
+      # 11. Weitere Abhängigkeiten (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
@@ -178,7 +163,7 @@ jobs:
         run: .\scripts\build-deps.ps1
 
       # ─────────────────────────────────────────────
-      # 13. Nextcloud Desktop klonen
+      # 12. Nextcloud Desktop klonen
       # ─────────────────────────────────────────────
       - name: Clone Nextcloud
         shell: pwsh
@@ -192,7 +177,7 @@ jobs:
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
       # ─────────────────────────────────────────────
-      # 14. Patches anwenden
+      # 13. Patches anwenden
       # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
@@ -202,12 +187,10 @@ jobs:
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
 
       # ─────────────────────────────────────────────
-      # 15. CMake konfigurieren
-      #    - qt-cmake.bat aus ARM64-Qt (läuft nativ
-      #      auf windows-11-arm Runner)
-      #    - QT_HOST_PATH zeigt auf x64-Qt für
-      #      moc/rcc/uic Host-Tools
-      #    - WebEngine optional je nach Verfügbarkeit
+      # 14. CMake konfigurieren
+      #    - qt-cmake.bat aus ARM64-Qt läuft nativ
+      #    - Kein QT_HOST_PATH nötig (nativer ARM64-Runner)
+      #    - WebEngine optional je nach Schritt 4
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
@@ -215,17 +198,15 @@ jobs:
           $env:PKG_CONFIG_PATH = "C:\build\libp11-arm64"
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
 
-          # WebEngine-Flags nur setzen wenn installiert
           $webEngineArgs = @()
-          if (Test-Path "C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6WebEngineCore") {
-            Write-Host "WebEngine gefunden – wird aktiviert"
+          if ($env:NO_WEBENGINE -eq "1") {
+            Write-Warning "Konfiguriere ohne WebEngine"
+            $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
+          } else {
             $webEngineArgs = @(
               "-DQt6WebEngineCore_DIR=C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6WebEngineCore",
               "-DQt6WebEngineWidgets_DIR=C:\Qt\6.11.1\msvc2022_arm64\lib\cmake\Qt6WebEngineWidgets"
             )
-          } else {
-            Write-Warning "WebEngine nicht gefunden – Build ohne WebEngine"
-            $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
           }
 
           & "C:\Qt\6.11.1\msvc2022_arm64\bin\qt-cmake.bat" `
@@ -234,7 +215,6 @@ jobs:
             -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX=C:\build\nextcloud-arm64 `
-            -DQT_HOST_PATH=C:\Qt\6.11.1\msvc2022_64 `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
             "-DQt6Keychain_DIR=C:\build\deps-arm64\qtkeychain\lib\cmake\Qt6Keychain" `
@@ -247,15 +227,14 @@ jobs:
             @webEngineArgs
 
       # ─────────────────────────────────────────────
-      # 16. Bauen
+      # 15. Bauen
       # ─────────────────────────────────────────────
       - name: Build
         run: cmake --build C:\build\nextcloud-build --parallel 4
 
       # ─────────────────────────────────────────────
-      # 17. Installieren + Deployment
-      #    windeployqt aus ARM64-Qt läuft nativ auf
-      #    dem windows-11-arm Runner
+      # 16. Installieren + Deployment
+      #    windeployqt aus ARM64-Qt läuft nativ
       # ─────────────────────────────────────────────
       - name: Install and Deploy
         shell: pwsh
@@ -265,7 +244,6 @@ jobs:
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
             C:\Qt\6.11.1\msvc2022_arm64\bin\
 
-          # ARM64-windeployqt läuft nativ auf ARM64-Runner
           & "C:\Qt\6.11.1\msvc2022_arm64\bin\windeployqt.exe" `
             C:\build\nextcloud-arm64\bin\nextcloud.exe
 
@@ -275,7 +253,7 @@ jobs:
             C:\build\nextcloud-arm64\bin\
 
       # ─────────────────────────────────────────────
-      # 18. ZIP erstellen
+      # 17. ZIP erstellen
       # ─────────────────────────────────────────────
       - name: Create ZIP
         shell: pwsh
@@ -285,7 +263,7 @@ jobs:
             -DestinationPath "Nextcloud-${version}-arm64-portable.zip"
 
       # ─────────────────────────────────────────────
-      # 19. Release veröffentlichen
+      # 18. Release veröffentlichen
       # ─────────────────────────────────────────────
       - name: Publish Release
         uses: softprops/action-gh-release@v2
