@@ -1,12 +1,22 @@
 Write-Host "Building dependencies for ARM64..."
 
-# Qt-Pfad dynamisch ermitteln
-$QtBase = "C:\Qt\6.11.1"
-$QtDir = Get-ChildItem $QtBase -Directory | Where-Object { $_.Name -like "*arm64*" } | Select-Object -First 1 -ExpandProperty FullName
-if (-not $QtDir) {
-    throw "Qt ARM64-Verzeichnis nicht gefunden. Verfuegbar: $(Get-ChildItem $QtBase -Directory | Select-Object -ExpandProperty Name)"
+# Qt-Pfad aus Umgebungsvariable (wird vom Workflow gesetzt)
+# Fallback: dynamisch in C:\Qt suchen
+if ($env:QT_ARM64_DIR -and (Test-Path $env:QT_ARM64_DIR)) {
+    $QtDir = $env:QT_ARM64_DIR
+    Write-Host "Qt ARM64 aus Umgebungsvariable: $QtDir"
+} else {
+    # Dynamisch suchen - unabhaengig von der Qt-Version
+    $QtInstallRoot = "C:\Qt"
+    $QtDir = Get-ChildItem $QtInstallRoot -Recurse -Directory `
+        | Where-Object { $_.Name -like "*arm64*" -and (Test-Path "$($_.FullName)\lib\cmake\Qt6") } `
+        | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $QtDir) {
+        throw "Qt ARM64-Verzeichnis nicht gefunden unter $QtInstallRoot"
+    }
+    Write-Host "Qt ARM64 dynamisch gefunden: $QtDir"
 }
-Write-Host "Qt ARM64 Verzeichnis: $QtDir"
+
 $QtToolchain = "$QtDir\lib\cmake\Qt6\qt.toolchain.cmake"
 if (-not (Test-Path $QtToolchain)) {
     throw "qt.toolchain.cmake nicht gefunden: $QtToolchain"
@@ -14,19 +24,22 @@ if (-not (Test-Path $QtToolchain)) {
 Write-Host "Qt Toolchain: $QtToolchain"
 
 # Host-Qt ermitteln (x64, von --autodesktop installiert)
-$QtHostDir = Get-ChildItem $QtBase -Directory | Where-Object { $_.Name -like "*msvc*" -and $_.Name -notlike "*arm*" } | Select-Object -First 1 -ExpandProperty FullName
+# Liegt eine Ebene hoeher als das ARM64-Verzeichnis
+$QtVersionDir = Split-Path $QtDir -Parent
+$QtHostDir = Get-ChildItem $QtVersionDir -Directory `
+    | Where-Object { $_.Name -like "*msvc*" -and $_.Name -notlike "*arm*" } `
+    | Select-Object -First 1 -ExpandProperty FullName
 if (-not $QtHostDir) {
-    # Fallback: msvc2022_64 direkt
-    $QtHostDir = "C:\Qt\6.11.1\msvc2022_64"
+    throw "Qt Host (x64) Verzeichnis nicht gefunden unter $QtVersionDir"
 }
 Write-Host "Qt Host (x64) Verzeichnis: $QtHostDir"
 
-# Strawberry Perl aus PATH entfernen (Konflikt mit MSVC)
-$env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*Strawberry*' }) -join ';'
+# Strawberry Perl C-Bins aus PATH entfernen (Konflikt mit MSVC)
+$env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
 
-mkdir -Force C:\build\deps-arm64
+New-Item -ItemType Directory -Force C:\build\deps-arm64 | Out-Null
 
-# ── ECM (host-native, KEIN Qt-Toolchain, Docs deaktiviert) ──────────────
+# ── ECM (host-native, KEIN Qt-Toolchain) ────────────────────────────
 git clone https://invent.kde.org/frameworks/extra-cmake-modules.git C:\build\ecm-src --depth 1
 New-Item -ItemType Directory -Force C:\build\ecm-build | Out-Null
 Set-Location C:\build\ecm-build
@@ -41,7 +54,7 @@ cmake C:\build\ecm-src `
 cmake --build . --parallel 4
 cmake --install .
 
-# ── QtKeychain ──────────────────────────────────────────────
+# ── QtKeychain ─────────────────────────────────────────────
 git clone https://github.com/frankosterfeld/qtkeychain.git C:\build\qtkeychain-src --depth 1
 New-Item -ItemType Directory -Force C:\build\qtkeychain-build | Out-Null
 Set-Location C:\build\qtkeychain-build
@@ -56,7 +69,7 @@ cmake C:\build\qtkeychain-src `
 cmake --build . --parallel 4
 cmake --install . --config Release
 
-# ── KF6Archive ───────────────────────────────────────────────
+# ── KF6Archive ─────────────────────────────────────────────
 git clone https://invent.kde.org/frameworks/karchive.git C:\build\karchive-src --depth 1
 New-Item -ItemType Directory -Force C:\build\karchive-build | Out-Null
 Set-Location C:\build\karchive-build
