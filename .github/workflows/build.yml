@@ -310,8 +310,13 @@ jobs:
 
           cmake --install C:\build\nextcloud-build
 
+          # Deps: qtkeychain, KF6Archive, KDSingleApplication
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
             "$env:QT_ARM64_DIR\bin\" -Force
+          Get-ChildItem C:\build\deps-arm64\kf6archive\bin\*.dll -ErrorAction SilentlyContinue | `
+            ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
+          Get-ChildItem C:\build\deps-arm64\kdsingleapp\bin\*.dll -ErrorAction SilentlyContinue | `
+            ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
 
           & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
             --release `
