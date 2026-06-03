@@ -1,7 +1,7 @@
 Write-Host "Building dependencies for ARM64..."
 
 # Qt-Pfad dynamisch ermitteln
-$QtBase = "C:\Qt\6.9.0"
+$QtBase = "C:\Qt\6.11.1"
 $QtDir = Get-ChildItem $QtBase -Directory | Where-Object { $_.Name -like "*arm64*" } | Select-Object -First 1 -ExpandProperty FullName
 if (-not $QtDir) {
     throw "Qt ARM64-Verzeichnis nicht gefunden. Verfuegbar: $(Get-ChildItem $QtBase -Directory | Select-Object -ExpandProperty Name)"
@@ -17,7 +17,7 @@ Write-Host "Qt Toolchain: $QtToolchain"
 $QtHostDir = Get-ChildItem $QtBase -Directory | Where-Object { $_.Name -like "*msvc*" -and $_.Name -notlike "*arm*" } | Select-Object -First 1 -ExpandProperty FullName
 if (-not $QtHostDir) {
     # Fallback: msvc2022_64 direkt
-    $QtHostDir = "C:\Qt\6.9.0\msvc2022_64"
+    $QtHostDir = "C:\Qt\6.11.1\msvc2022_64"
 }
 Write-Host "Qt Host (x64) Verzeichnis: $QtHostDir"
 
