@@ -299,21 +299,18 @@ jobs:
       # ─────────────────────────────────────────────
       # 17. CMake konfigurieren
       #
-      # WICHTIG: CMAKE_TOOLCHAIN_FILE wird nur EINMAL gesetzt (Qt-Toolchain).
-      # vcpkg wird ueber QT_CHAINLOAD_TOOLCHAIN_FILE eingebunden – das ist
-      # der offizielle Qt-Mechanismus damit Qt-Toolchain + vcpkg zusammen
-      # funktionieren ohne sich gegenseitig zu ueberschreiben.
+      # libp11 wird NICHT über pkg-config eingebunden (funktioniert nicht
+      # zuverlässig mit MSVC/Ninja), sondern direkt als CMake-Variablen:
+      #   LIBP11_INCLUDE_DIR  → Header-Verzeichnis
+      #   LIBP11_LIBRARIES    → absoluter Pfad zur .lib
       #
-      # KF6Archive, QtKeychain, KDSingleApplication sind manuell gebaut
-      # und werden ueber CMAKE_PREFIX_PATH gefunden. Das ist noetic weil
-      # vcpkg's _find_package-Hook -DPaket_DIR-Argumente fuer unbekannte
-      # Pakete ignoriert, CMAKE_PREFIX_PATH jedoch immer durchsucht wird.
+      # Damit findet target_link_libraries() in libsync/CMakeLists.txt
+      # die Symbole (PKCS11_CTX_load, PKCS11_open_session, …) zuverlässig.
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
         run: |
           $QtToolchain = "$env:QT_ARM64_DIR\lib\cmake\Qt6\qt.toolchain.cmake"
-          $env:PKG_CONFIG_PATH = "C:\build\libp11-arm64"
 
           # Strawberry GCC aus PATH entfernen damit MSVC Vorrang hat
           $env:PATH = ($env:PATH -split ';' |
@@ -350,6 +347,8 @@ jobs:
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
             "-DZLIB_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\z.lib" `
             "-DZLIB_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
+            "-DLIBP11_INCLUDE_DIR=C:\build\libp11-arm64" `
+            "-DLIBP11_LIBRARIES=C:\build\libp11-arm64\libp11.lib" `
             @webEngineArgs
 
       # ─────────────────────────────────────────────
