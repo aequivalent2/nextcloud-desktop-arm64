@@ -34,7 +34,7 @@ jobs:
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
       # ─────────────────────────────────────────────
-      # 3. MSVC nativ ARM64
+      # 3. MSVC nativ ARM64 – VOR Perl/GCC
       # ─────────────────────────────────────────────
       - name: Setup MSVC ARM64
         uses: ilammy/msvc-dev-cmd@v1
@@ -42,7 +42,9 @@ jobs:
           arch: arm64
 
       # ─────────────────────────────────────────────
-      # 4. Perl – nur perl\bin, kein gcc
+      # 4. Perl – nur perl\bin, KEIN c\bin (kein gcc)
+      #    Strawberry c\bin wuerde gcc in PATH bringen
+      #    und cmake wuerde den falschen Compiler nehmen
       # ─────────────────────────────────────────────
       - name: Setup Perl
         shell: pwsh
@@ -64,7 +66,34 @@ jobs:
           echo "CXX=cl" >> $env:GITHUB_ENV
 
       # ─────────────────────────────────────────────
-      # 6. Python + aqt
+      # 6. Windows SDK Pfade setzen
+      #    Noetig fuer MIDL/cppwinrt (VFS Shell Extension)
+      # ─────────────────────────────────────────────
+      - name: Setup Windows SDK paths
+        shell: pwsh
+        run: |
+          $sdkVer = "10.0.26100.0"
+          $sdkBin = "C:\Program Files (x86)\Windows Kits\10\bin\$sdkVer\arm64"
+          $sdkInc = "C:\Program Files (x86)\Windows Kits\10\Include\$sdkVer"
+          $sdkLib = "C:\Program Files (x86)\Windows Kits\10\Lib\$sdkVer"
+          $vsVer  = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC" |
+                      Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name
+          $msvcLib = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\lib\arm64"
+          $msvcInc = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\include"
+
+          "$sdkBin" | Add-Content $env:GITHUB_PATH
+
+          $libPath = "$sdkLib\um\arm64;$sdkLib\ucrt\arm64;$msvcLib"
+          $incPath = "$msvcInc;$sdkInc\ucrt;$sdkInc\um;$sdkInc\shared;$sdkInc\winrt;$sdkInc\cppwinrt"
+
+          echo "LIB=$libPath"     >> $env:GITHUB_ENV
+          echo "INCLUDE=$incPath" >> $env:GITHUB_ENV
+
+          Write-Host "SDK Version: $sdkVer"
+          Write-Host "MSVC Version: $vsVer"
+
+      # ─────────────────────────────────────────────
+      # 7. Python + aqt
       # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -76,7 +105,7 @@ jobs:
         run: python -m pip install aqtinstall==3.3.*
 
       # ─────────────────────────────────────────────
-      # 7. Qt 6.11.1 ARM64 nativ installieren
+      # 8. Qt 6.11.1 ARM64 nativ installieren
       # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
@@ -90,11 +119,11 @@ jobs:
         run: |
           $modules = python -m aqt list-qt windows_arm64 desktop --modules 6.11.1 win64_msvc2022_arm64
           if ($modules -match "qtwebengine") {
-            Write-Host "qtwebengine verfügbar - wird installiert"
+            Write-Host "qtwebengine verfuegbar - wird installiert"
             python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
-              --outputdir C:\Qt --modules qtwebengine qtprintingsupport
+              --outputdir C:\Qt --modules qtwebengine
           } else {
-            Write-Warning "qtwebengine nicht verfügbar - Build ohne WebEngine"
+            Write-Warning "qtwebengine nicht verfuegbar - Build ohne WebEngine"
             echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
           }
 
@@ -102,7 +131,9 @@ jobs:
         shell: pwsh
         run: |
           $QtBase = "C:\Qt\6.11.1"
-          $QtDir = Get-ChildItem $QtBase -Directory | Where-Object { $_.Name -like "*arm64*" } | Select-Object -First 1 -ExpandProperty FullName
+          $QtDir = Get-ChildItem $QtBase -Directory |
+            Where-Object { $_.Name -like "*arm64*" } |
+            Select-Object -First 1 -ExpandProperty FullName
           if (-not $QtDir) {
             throw "Qt ARM64-Verzeichnis nicht gefunden. Verfuegbar: $(Get-ChildItem $QtBase -Directory | Select-Object -ExpandProperty Name)"
           }
@@ -111,13 +142,13 @@ jobs:
           "$QtDir\bin" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 8. CMake + Ninja
+      # 9. CMake + Ninja
       # ─────────────────────────────────────────────
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
       # ─────────────────────────────────────────────
-      # 9. pkg-config
+      # 10. pkg-config
       # ─────────────────────────────────────────────
       - name: Install pkg-config
         shell: pwsh
@@ -134,18 +165,26 @@ jobs:
           }
 
       # ─────────────────────────────────────────────
-      # 10. vcpkg + SQLite für ARM64
+      # 11. vcpkg + Kompressionslibs + SQLite fuer ARM64
+      #     zlib, bzip2, liblzma, zstd benoetigt von KF6Archive
+      #     sqlite3 benoetigt von Nextcloud direkt
       # ─────────────────────────────────────────────
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
           git clone https://github.com/microsoft/vcpkg.git C:\build\vcpkg --depth 1
           C:\build\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          C:\build\vcpkg\vcpkg.exe install sqlite3:arm64-windows --no-print-usage
+          C:\build\vcpkg\vcpkg.exe install `
+            sqlite3:arm64-windows `
+            zlib:arm64-windows `
+            bzip2:arm64-windows `
+            liblzma:arm64-windows `
+            zstd:arm64-windows `
+            --no-print-usage
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 11. OpenSSL (gecacht)
+      # 12. OpenSSL (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
@@ -167,7 +206,7 @@ jobs:
           key: openssl-3.3-arm64-v5
 
       # ─────────────────────────────────────────────
-      # 12. libp11 (gecacht)
+      # 13. libp11 (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
@@ -189,7 +228,8 @@ jobs:
           key: libp11-0.4.12-arm64-v6
 
       # ─────────────────────────────────────────────
-      # 13. Weitere Abhängigkeiten (gecacht)
+      # 14. Weitere Abhaengigkeiten (gecacht)
+      #     ECM, QtKeychain, KF6Archive, KDSingleApplication
       # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
@@ -211,7 +251,7 @@ jobs:
           key: deps-arm64-qt6.11.1-v5
 
       # ─────────────────────────────────────────────
-      # 14. Nextcloud Desktop klonen
+      # 15. Nextcloud Desktop klonen
       # ─────────────────────────────────────────────
       - name: Clone Nextcloud
         shell: pwsh
@@ -226,23 +266,47 @@ jobs:
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
       # ─────────────────────────────────────────────
-      # 15. Patches anwenden
+      # 16. Patches anwenden
+      #     001: TYPE REQUIRED -> TYPE OPTIONAL (WebEngine)
+      #     002: find_package WebEngineCore QUIET
+      #     libp11-headers: interne Header kopieren
       # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
         run: |
           Set-Location C:\build\nextcloud-src
+
+          # CMakeLists Patches
           git apply $env:GITHUB_WORKSPACE\patches\001-cmake-optional-type.patch
+
+          # libp11-internen Headern in libsync kopieren
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
 
+          # OPENSC-LIBP11 Link-Target entfernen (nicht verfuegbar ohne echte libp11 Installation)
+          $syncCmake = "src\libsync\CMakeLists.txt"
+          (Get-Content $syncCmake) `
+            -replace 'PkgConfig::OPENSC-LIBP11', '' |
+            Set-Content $syncCmake
+
+          # pkg_check_modules libp11 REQUIRED -> QUIET
+          (Get-Content "CMakeLists.txt") `
+            -replace 'pkg_check_modules\(OPENSC-LIBP11 libp11 REQUIRED IMPORTED_TARGET\)',
+                     'pkg_check_modules(OPENSC-LIBP11 libp11 QUIET IMPORTED_TARGET)' |
+            Set-Content "CMakeLists.txt"
+
       # ─────────────────────────────────────────────
-      # 16. CMake konfigurieren
+      # 17. CMake konfigurieren
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
         run: |
           $QtToolchain = "$env:QT_ARM64_DIR\lib\cmake\Qt6\qt.toolchain.cmake"
           $env:PKG_CONFIG_PATH = "C:\build\libp11-arm64"
+
+          # Strawberry GCC aus PATH entfernen damit MSVC Vorrang hat
+          $env:PATH = ($env:PATH -split ';' |
+            Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
+
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
 
           $webEngineArgs = @()
@@ -267,39 +331,48 @@ jobs:
             "-DQt6Keychain_DIR=C:\build\deps-arm64\qtkeychain\lib\cmake\Qt6Keychain" `
             "-DKF6Archive_DIR=C:\build\deps-arm64\kf6archive\lib\cmake\KF6Archive" `
             "-DKDSingleApplication-qt6_DIR=C:\build\deps-arm64\kdsingleapp\lib\cmake\KDSingleApplication-qt6" `
-            "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            "-DCMAKE_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=arm64-windows `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
+            "-DZLIB_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\z.lib" `
+            "-DZLIB_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             @webEngineArgs
 
       # ─────────────────────────────────────────────
-      # 17. Bauen
+      # 18. Bauen
       # ─────────────────────────────────────────────
       - name: Build
-        run: cmake --build C:\build\nextcloud-build --parallel 4
+        shell: pwsh
+        run: |
+          # Strawberry GCC aus PATH entfernen
+          $env:PATH = ($env:PATH -split ';' |
+            Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
+          cmake --build C:\build\nextcloud-build --parallel 4
 
       # ─────────────────────────────────────────────
-      # 18. Installieren + Deployment
+      # 19. Installieren + Deployment
       # ─────────────────────────────────────────────
       - name: Install and Deploy
         shell: pwsh
         run: |
           cmake --install C:\build\nextcloud-build
 
+          # qt6keychain.dll liegt nicht im Qt-Verzeichnis - manuell kopieren
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
             "$env:QT_ARM64_DIR\bin\"
 
           & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
             C:\build\nextcloud-arm64\bin\nextcloud.exe
 
+          # Eigene DLLs hinzufuegen
           Copy-Item C:\build\libp11-arm64\libp11.dll `
             C:\build\nextcloud-arm64\bin\
           Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll `
             C:\build\nextcloud-arm64\bin\
 
       # ─────────────────────────────────────────────
-      # 19. ZIP erstellen
+      # 20. ZIP erstellen
       # ─────────────────────────────────────────────
       - name: Create ZIP
         shell: pwsh
@@ -309,7 +382,7 @@ jobs:
             -DestinationPath "Nextcloud-${version}-arm64-portable.zip"
 
       # ─────────────────────────────────────────────
-      # 20. Release veröffentlichen
+      # 21. Release veroeffentlichen
       # ─────────────────────────────────────────────
       - name: Publish Release
         uses: softprops/action-gh-release@v2
@@ -320,7 +393,7 @@ jobs:
           body: |
             ## Nextcloud Desktop ARM64 – Inoffizieller Build
 
-            Nativer ARM64-Build für Windows ARM64 Geräte.
+            Nativer ARM64-Build fuer Windows ARM64 Geraete.
 
             ### Installation
             1. ZIP herunterladen und entpacken
