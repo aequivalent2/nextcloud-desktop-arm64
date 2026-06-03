@@ -85,7 +85,7 @@ jobs:
 
       - name: Check available Qt archs
         shell: pwsh
-        run: python -m aqt list-qt windows desktop --arch 6.11.1
+        run: python -m aqt list-qt windows desktop --arch
 
       - name: Install Qt ARM64
         shell: pwsh
