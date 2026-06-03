@@ -43,8 +43,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 4. Perl – nur perl\bin, KEIN c\bin (kein gcc)
-      #    Strawberry c\bin wuerde gcc in PATH bringen
-      #    und cmake wuerde den falschen Compiler nehmen
       # ─────────────────────────────────────────────
       - name: Setup Perl
         shell: pwsh
@@ -67,7 +65,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 6. Windows SDK Pfade setzen
-      #    Noetig fuer MIDL/cppwinrt (VFS Shell Extension)
       # ─────────────────────────────────────────────
       - name: Setup Windows SDK paths
         shell: pwsh
@@ -105,7 +102,7 @@ jobs:
         run: python -m pip install aqtinstall==3.3.*
 
       # ─────────────────────────────────────────────
-      # 8. Qt 6.11.1 ARM64 nativ installieren
+      # 8. Qt 6.11.1 ARM64 installieren
       # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
@@ -165,9 +162,7 @@ jobs:
           }
 
       # ─────────────────────────────────────────────
-      # 11. vcpkg + Kompressionslibs + SQLite fuer ARM64
-      #     zlib, bzip2, liblzma, zstd benoetigt von KF6Archive
-      #     sqlite3 benoetigt von Nextcloud direkt
+      # 11. vcpkg + Abhaengigkeiten
       # ─────────────────────────────────────────────
       - name: Bootstrap vcpkg
         shell: pwsh
@@ -236,7 +231,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-qt6.11.1-v5
+          key: deps-arm64-qt6.11.1-v6
 
       - name: Build Dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -248,7 +243,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-qt6.11.1-v5
+          key: deps-arm64-qt6.11.1-v6
 
       # ─────────────────────────────────────────────
       # 15. Nextcloud Desktop klonen
@@ -267,28 +262,17 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 16. Patches anwenden
-      #     001: TYPE REQUIRED -> TYPE OPTIONAL (WebEngine)
-      #     002: find_package WebEngineCore QUIET
-      #     libp11-headers: interne Header kopieren
       # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
         run: |
           Set-Location C:\build\nextcloud-src
-
-          # CMakeLists Patches
           git apply $env:GITHUB_WORKSPACE\patches\001-cmake-optional-type.patch
-
-          # libp11-internen Headern in libsync kopieren
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
-
-          # OPENSC-LIBP11 Link-Target entfernen (nicht verfuegbar ohne echte libp11 Installation)
           $syncCmake = "src\libsync\CMakeLists.txt"
           (Get-Content $syncCmake) `
             -replace 'PkgConfig::OPENSC-LIBP11', '' |
             Set-Content $syncCmake
-
-          # pkg_check_modules libp11 REQUIRED -> QUIET
           (Get-Content "CMakeLists.txt") `
             -replace 'pkg_check_modules\(OPENSC-LIBP11 libp11 REQUIRED IMPORTED_TARGET\)',
                      'pkg_check_modules(OPENSC-LIBP11 libp11 QUIET IMPORTED_TARGET)' |
@@ -296,6 +280,16 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 17. CMake konfigurieren
+      #
+      # WICHTIG: CMAKE_TOOLCHAIN_FILE wird nur EINMAL gesetzt (Qt-Toolchain).
+      # vcpkg wird ueber QT_CHAINLOAD_TOOLCHAIN_FILE eingebunden – das ist
+      # der offizielle Qt-Mechanismus damit Qt-Toolchain + vcpkg zusammen
+      # funktionieren ohne sich gegenseitig zu ueberschreiben.
+      #
+      # KF6Archive, QtKeychain, KDSingleApplication sind manuell gebaut
+      # und werden ueber CMAKE_PREFIX_PATH gefunden. Das ist noetic weil
+      # vcpkg's _find_package-Hook -DPaket_DIR-Argumente fuer unbekannte
+      # Pakete ignoriert, CMAKE_PREFIX_PATH jedoch immer durchsucht wird.
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
@@ -308,6 +302,9 @@ jobs:
             Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
 
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
+
+          # Alle manuell gebauten Pakete als Suchpfade zusammenfassen
+          $prefixPath = "C:/build/deps-arm64/ecm;C:/build/deps-arm64/qtkeychain;C:/build/deps-arm64/kf6archive;C:/build/deps-arm64/kdsingleapp"
 
           $webEngineArgs = @()
           if ($env:NO_WEBENGINE -eq "1") {
@@ -323,16 +320,14 @@ jobs:
           cmake C:\build\nextcloud-src `
             -B C:\build\nextcloud-build `
             -G Ninja `
-            "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX=C:\build\nextcloud-arm64 `
+            "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
+            "-DQT_CHAINLOAD_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=arm64-windows `
+            "-DCMAKE_PREFIX_PATH=$prefixPath" `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
-            "-DQt6Keychain_DIR=C:\build\deps-arm64\qtkeychain\lib\cmake\Qt6Keychain" `
-            "-DKF6Archive_DIR=C:\build\deps-arm64\kf6archive\lib\cmake\KF6Archive" `
-            "-DKDSingleApplication-qt6_DIR=C:\build\deps-arm64\kdsingleapp\lib\cmake\KDSingleApplication-qt6" `
-            "-DCMAKE_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=arm64-windows `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
             "-DZLIB_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\z.lib" `
@@ -345,7 +340,6 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          # Strawberry GCC aus PATH entfernen
           $env:PATH = ($env:PATH -split ';' |
             Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
           cmake --build C:\build\nextcloud-build --parallel 4
@@ -357,15 +351,10 @@ jobs:
         shell: pwsh
         run: |
           cmake --install C:\build\nextcloud-build
-
-          # qt6keychain.dll liegt nicht im Qt-Verzeichnis - manuell kopieren
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
             "$env:QT_ARM64_DIR\bin\"
-
           & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
             C:\build\nextcloud-arm64\bin\nextcloud.exe
-
-          # Eigene DLLs hinzufuegen
           Copy-Item C:\build\libp11-arm64\libp11.dll `
             C:\build\nextcloud-arm64\bin\
           Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll `
