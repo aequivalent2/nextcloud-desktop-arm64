@@ -300,7 +300,7 @@ jobs:
         run: |
           $env:PATH = ($env:PATH -split ';' |
             Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
-          cmake --build C:\build\nextcloud-build --parallel 2
+          cmake --build C:\build\nextcloud-build --parallel 4
 
       - name: Install and Deploy
         shell: pwsh
