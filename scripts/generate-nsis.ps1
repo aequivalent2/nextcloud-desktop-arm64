@@ -29,15 +29,15 @@ $deleteLines = (Get-ChildItem $BinDir -File | ForEach-Object {
 
 $nsi = @"
 Unicode True
-!define APPNAME    "Nextcloud"
+!define APPNAME "Nextcloud"
 !define APPVERSION "$verClean"
-!define APPTAG     "$version"
-!define APPEXE     "nextcloud.exe"
-!define UNREG      "Software\Microsoft\Windows\CurrentVersion\Uninstall\NextcloudDesktopARM64"
-!define INREG      "Software\Nextcloud\NextcloudDesktop-ARM64"
+!define APPTAG "$version"
+!define APPEXE "nextcloud.exe"
+!define UNREG "Software\Microsoft\Windows\CurrentVersion\Uninstall\NextcloudDesktopARM64"
+!define INREG "Software\Nextcloud\NextcloudDesktop-ARM64"
 
-Name      "`${APPNAME} `${APPVERSION} ARM64"
-OutFile   "C:\build\Nextcloud-`${APPTAG}-arm64-Setup.exe"
+Name "`${APPNAME} `${APPVERSION} ARM64"
+OutFile "C:\build\Nextcloud-`${APPTAG}-arm64-Setup.exe"
 InstallDir "`$PROGRAMFILES64\Nextcloud"
 InstallDirRegKey HKCU "`${INREG}" "InstallPath"
 RequestExecutionLevel admin
@@ -60,20 +60,20 @@ Section "Nextcloud" SecMain
 $fileLines
 $subdirSections
   WriteRegStr HKCU "`${INREG}" "InstallPath" "`$INSTDIR"
-  WriteRegStr   HKLM "`${UNREG}" "DisplayName"     "`${APPNAME} `${APPVERSION} ARM64"
-  WriteRegStr   HKLM "`${UNREG}" "DisplayVersion"  "`${APPVERSION}"
-  WriteRegStr   HKLM "`${UNREG}" "InstallLocation" "`$INSTDIR"
-  WriteRegStr   HKLM "`${UNREG}" "DisplayIcon"     "`$INSTDIR\`${APPEXE}"
-  WriteRegStr   HKLM "`${UNREG}" "UninstallString" "`$INSTDIR\uninstall.exe"
+  WriteRegStr HKLM "`${UNREG}" "DisplayName" "`${APPNAME} `${APPVERSION} ARM64"
+  WriteRegStr HKLM "`${UNREG}" "DisplayVersion" "`${APPVERSION}"
+  WriteRegStr HKLM "`${UNREG}" "InstallLocation" "`$INSTDIR"
+  WriteRegStr HKLM "`${UNREG}" "DisplayIcon" "`$INSTDIR\`${APPEXE}"
+  WriteRegStr HKLM "`${UNREG}" "UninstallString" "`$INSTDIR\uninstall.exe"
   WriteRegDWORD HKLM "`${UNREG}" "NoModify" 1
-  WriteRegDWORD HKLM "`${UNREG}" "NoRepair"  1
+  WriteRegDWORD HKLM "`${UNREG}" "NoRepair" 1
   WriteUninstaller "`$INSTDIR\uninstall.exe"
 SectionEnd
 
 Section "Startmenue" SecStartMenu
   CreateDirectory "`$SMPROGRAMS\Nextcloud"
-  CreateShortcut  "`$SMPROGRAMS\Nextcloud\Nextcloud.lnk" "`$INSTDIR\`${APPEXE}"
-  CreateShortcut  "`$SMPROGRAMS\Nextcloud\Deinstallieren.lnk" "`$INSTDIR\uninstall.exe"
+  CreateShortcut "`$SMPROGRAMS\Nextcloud\Nextcloud.lnk" "`$INSTDIR\`${APPEXE}"
+  CreateShortcut "`$SMPROGRAMS\Nextcloud\Deinstallieren.lnk" "`$INSTDIR\uninstall.exe"
 SectionEnd
 
 Section "Desktop" SecDesktop
@@ -81,7 +81,7 @@ Section "Desktop" SecDesktop
 SectionEnd
 
 Section "Autostart" SecAutostart
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nextcloud" "`"`$INSTDIR\`${APPEXE}`""
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nextcloud" "`$INSTDIR\`${APPEXE}"
 SectionEnd
 
 Section "Uninstall"
@@ -98,10 +98,10 @@ $deleteLines
   RMDir /r "`$INSTDIR\styles"
   RMDir /r "`$INSTDIR\tls"
   Delete "`$INSTDIR\uninstall.exe"
-  RMDir  "`$INSTDIR"
+  RMDir "`$INSTDIR"
   Delete "`$SMPROGRAMS\Nextcloud\Nextcloud.lnk"
   Delete "`$SMPROGRAMS\Nextcloud\Deinstallieren.lnk"
-  RMDir  "`$SMPROGRAMS\Nextcloud"
+  RMDir "`$SMPROGRAMS\Nextcloud"
   Delete "`$DESKTOP\Nextcloud.lnk"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nextcloud"
   DeleteRegKey HKCU "`${INREG}"
