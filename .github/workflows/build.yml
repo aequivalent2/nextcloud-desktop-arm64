@@ -162,6 +162,24 @@ jobs:
           }
 
       # ─────────────────────────────────────────────
+      # 10b. SVG-Konverter fuer Icon-Generierung
+      # ─────────────────────────────────────────────
+      - name: Install SVG converter
+        shell: pwsh
+        run: |
+          choco install rsvg-convert -y --no-progress
+          $found = Get-Command rsvg-convert -ErrorAction SilentlyContinue
+          if (-not $found) {
+            $chocoBin = "C:\ProgramData\chocolatey\bin"
+            if (Test-Path $chocoBin) {
+              $chocoBin | Add-Content $env:GITHUB_PATH
+            } else {
+              throw "rsvg-convert konnte nicht installiert werden"
+            }
+          }
+          rsvg-convert --version
+
+      # ─────────────────────────────────────────────
       # 11. vcpkg + Abhaengigkeiten
       # ─────────────────────────────────────────────
       - name: Bootstrap vcpkg
