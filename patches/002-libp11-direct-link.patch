@@ -1,0 +1,10 @@
+--- a/src/libsync/CMakeLists.txt
++++ b/src/libsync/CMakeLists.txt
+@@ -1,4 +1,12 @@
+ # libp11 / PKCS11 – auf Windows direkt per absoluten Pfad einbinden,
++# da pkg-config unter MSVC keine verwertbaren Linker-Flags liefert.
++# LIBP11_LIBRARIES wird per -DLIBP11_LIBRARIES=... von CMake uebergeben.
++if(WIN32 AND LIBP11_LIBRARIES)
++  target_link_libraries(nextcloudsync PRIVATE "${LIBP11_LIBRARIES}")
++  message(STATUS "libp11 direkt eingebunden: ${LIBP11_LIBRARIES}")
++endif()
