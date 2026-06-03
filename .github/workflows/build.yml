@@ -34,17 +34,43 @@ jobs:
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
       # ─────────────────────────────────────────────
-      # 3. Perl PATH dauerhaft setzen
+      # 3. MSVC ARM64 ZUERST – vor Perl/GCC im PATH!
+      #    amd64_arm64 = x64-Host kompiliert für ARM64
+      # ─────────────────────────────────────────────
+      - name: Setup MSVC ARM64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      # ─────────────────────────────────────────────
+      # 4. Perl NUR für Perl-Skripte (OpenSSL-Build)
+      #    NACHDEM MSVC gesetzt wurde, damit cl.exe
+      #    Vorrang vor gcc.exe hat.
+      #    Strawberry C-Bins werden NICHT in PATH gesetzt.
       # ─────────────────────────────────────────────
       - name: Setup Perl
         shell: pwsh
         run: |
+          # Nur perl\bin, NICHT c\bin – das würde gcc.exe in PATH bringen
           "C:\Strawberry\perl\bin" | Add-Content $env:GITHUB_PATH
-          "C:\Strawberry\c\bin"    | Add-Content $env:GITHUB_PATH
           perl --version
 
       # ─────────────────────────────────────────────
-      # 4. Python + aqt
+      # 5. MSVC als Standard-Compiler bestätigen
+      # ─────────────────────────────────────────────
+      - name: Verify MSVC compiler
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction SilentlyContinue)?.Source
+          if (-not $cl) { throw "cl.exe nicht gefunden! MSVC-Setup fehlgeschlagen." }
+          Write-Host "cl.exe gefunden: $cl"
+          cl.exe 2>&1 | Select-Object -First 2
+          # Sicherstellen dass cmake MSVC nutzt
+          echo "CC=cl"  >> $env:GITHUB_ENV
+          echo "CXX=cl" >> $env:GITHUB_ENV
+
+      # ─────────────────────────────────────────────
+      # 6. Python + aqt
       # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -56,7 +82,7 @@ jobs:
         run: python -m pip install aqtinstall==3.3.*
 
       # ─────────────────────────────────────────────
-      # 5. Qt ARM64 installieren
+      # 7. Qt ARM64 installieren
       # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
@@ -93,21 +119,13 @@ jobs:
           echo "$QtDir\bin" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 6. CMake + Ninja
+      # 8. CMake + Ninja
       # ─────────────────────────────────────────────
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
       # ─────────────────────────────────────────────
-      # 7. MSVC ARM64
-      # ─────────────────────────────────────────────
-      - name: Setup MSVC ARM64
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: arm64
-
-      # ─────────────────────────────────────────────
-      # 8. pkg-config
+      # 9. pkg-config
       # ─────────────────────────────────────────────
       - name: Install pkg-config
         shell: pwsh
@@ -124,7 +142,7 @@ jobs:
           }
 
       # ─────────────────────────────────────────────
-      # 9. vcpkg + SQLite für ARM64
+      # 10. vcpkg + SQLite für ARM64
       # ─────────────────────────────────────────────
       - name: Bootstrap vcpkg
         shell: pwsh
@@ -135,7 +153,7 @@ jobs:
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 10. OpenSSL (gecacht)
+      # 11. OpenSSL (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
@@ -157,7 +175,7 @@ jobs:
           key: openssl-3.3-arm64-${{ runner.os }}-v4
 
       # ─────────────────────────────────────────────
-      # 11. libp11 (gecacht)
+      # 12. libp11 (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
@@ -179,7 +197,7 @@ jobs:
           key: libp11-0.4.12-arm64-${{ runner.os }}-v5
 
       # ─────────────────────────────────────────────
-      # 12. Weitere Abhängigkeiten (gecacht)
+      # 13. Weitere Abhängigkeiten (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
@@ -201,7 +219,7 @@ jobs:
           key: deps-arm64-${{ runner.os }}-v4
 
       # ─────────────────────────────────────────────
-      # 13. Nextcloud Desktop klonen
+      # 14. Nextcloud Desktop klonen
       # ─────────────────────────────────────────────
       - name: Clone Nextcloud
         shell: pwsh
@@ -216,7 +234,7 @@ jobs:
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
       # ─────────────────────────────────────────────
-      # 14. Patches anwenden
+      # 15. Patches anwenden
       # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
@@ -226,7 +244,7 @@ jobs:
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
 
       # ─────────────────────────────────────────────
-      # 15. CMake konfigurieren
+      # 16. CMake konfigurieren
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
@@ -264,13 +282,13 @@ jobs:
             @webEngineArgs
 
       # ─────────────────────────────────────────────
-      # 16. Bauen
+      # 17. Bauen
       # ─────────────────────────────────────────────
       - name: Build
         run: cmake --build C:\build\nextcloud-build --parallel 4
 
       # ─────────────────────────────────────────────
-      # 17. Installieren + Deployment
+      # 18. Installieren + Deployment
       # ─────────────────────────────────────────────
       - name: Install and Deploy
         shell: pwsh
@@ -289,7 +307,7 @@ jobs:
             C:\build\nextcloud-arm64\bin\
 
       # ─────────────────────────────────────────────
-      # 18. ZIP erstellen
+      # 19. ZIP erstellen
       # ─────────────────────────────────────────────
       - name: Create ZIP
         shell: pwsh
@@ -299,7 +317,7 @@ jobs:
             -DestinationPath "Nextcloud-${version}-arm64-portable.zip"
 
       # ─────────────────────────────────────────────
-      # 19. Release veröffentlichen
+      # 20. Release veröffentlichen
       # ─────────────────────────────────────────────
       - name: Publish Release
         uses: softprops/action-gh-release@v2
