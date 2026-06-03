@@ -3,7 +3,7 @@ name: Build Nextcloud ARM64
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 4 * * *'  # taeglich 04:00 UTC pruefen
+    - cron: '0 4 * * *'
 
 permissions:
   contents: write
@@ -34,9 +34,7 @@ jobs:
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
       # ─────────────────────────────────────────────
-      # 3. MSVC nativ ARM64 – ZUERST, vor Perl/GCC
-      #    arch: arm64 = nativer ARM64-Compiler
-      #    passend zum windows-11-arm Runner
+      # 3. MSVC nativ ARM64
       # ─────────────────────────────────────────────
       - name: Setup MSVC ARM64
         uses: ilammy/msvc-dev-cmd@v1
@@ -44,7 +42,7 @@ jobs:
           arch: arm64
 
       # ─────────────────────────────────────────────
-      # 4. Perl – nur perl\bin, KEIN c\bin (kein gcc)
+      # 4. Perl – nur perl\bin, kein gcc
       # ─────────────────────────────────────────────
       - name: Setup Perl
         shell: pwsh
@@ -59,7 +57,7 @@ jobs:
         shell: pwsh
         run: |
           $cl = (Get-Command cl.exe -ErrorAction SilentlyContinue)?.Source
-          if (-not $cl) { throw "cl.exe nicht gefunden! MSVC-Setup fehlgeschlagen." }
+          if (-not $cl) { throw "cl.exe nicht gefunden!" }
           Write-Host "cl.exe gefunden: $cl"
           cl.exe 2>&1 | Select-Object -First 2
           echo "CC=cl"  >> $env:GITHUB_ENV
@@ -78,48 +76,39 @@ jobs:
         run: python -m pip install aqtinstall==3.3.*
 
       # ─────────────────────────────────────────────
-      # 7. Qt ARM64 nativ installieren
-      #    win64_msvc2022_arm64 = nativer ARM64-Build
-      #    kein cross_compiled mehr nötig
+      # 7. Qt 6.11.1 ARM64 nativ installieren
       # ─────────────────────────────────────────────
-
-      - name: Check available Qt archs
-        shell: pwsh
-        run: python -m aqt list-qt windows_arm64 desktop --arch 6.11.1
-
       - name: Install Qt ARM64
         shell: pwsh
         run: |
-          python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64 `
+          python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
             --outputdir C:\Qt `
             --modules qt5compat qtpositioning qtwebsockets
 
       - name: Install Qt ARM64 - WebEngine (best effort)
         shell: pwsh
         run: |
-          $modules = python -m aqt list-qt windows desktop --modules 6.9.0 win64_msvc2022_arm64
+          $modules = python -m aqt list-qt windows_arm64 desktop --modules 6.11.1 win64_msvc2022_arm64
           if ($modules -match "qtwebengine") {
             Write-Host "qtwebengine verfügbar - wird installiert"
-            python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64 `
-              --outputdir C:\Qt --modules qtwebengine
+            python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
+              --outputdir C:\Qt --modules qtwebengine qtprintingsupport
           } else {
-            Write-Warning "qtwebengine nicht verfügbar für Qt 6.9.0 ARM64 - Build ohne WebEngine"
+            Write-Warning "qtwebengine nicht verfügbar - Build ohne WebEngine"
             echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
           }
 
       - name: Detect Qt ARM64 path
-        id: qt-path
         shell: pwsh
         run: |
-          $QtBase = "C:\Qt\6.9.0"
+          $QtBase = "C:\Qt\6.11.1"
           $QtDir = Get-ChildItem $QtBase -Directory | Where-Object { $_.Name -like "*arm64*" } | Select-Object -First 1 -ExpandProperty FullName
           if (-not $QtDir) {
             throw "Qt ARM64-Verzeichnis nicht gefunden. Verfuegbar: $(Get-ChildItem $QtBase -Directory | Select-Object -ExpandProperty Name)"
           }
           Write-Host "Qt ARM64 gefunden: $QtDir"
           echo "QT_ARM64_DIR=$QtDir" >> $env:GITHUB_ENV
-          echo "$QtDir\bin" | Add-Content $env:GITHUB_PATH
-
+          "$QtDir\bin" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
       # 8. CMake + Ninja
@@ -163,7 +152,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\openssl-arm64
-          key: openssl-3.3-arm64-${{ runner.os }}-v4
+          key: openssl-3.3-arm64-v5
 
       - name: Build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -175,7 +164,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: C:\build\openssl-arm64
-          key: openssl-3.3-arm64-${{ runner.os }}-v4
+          key: openssl-3.3-arm64-v5
 
       # ─────────────────────────────────────────────
       # 12. libp11 (gecacht)
@@ -185,7 +174,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-${{ runner.os }}-v5
+          key: libp11-0.4.12-arm64-v6
 
       - name: Build libp11
         if: steps.cache-libp11.outputs.cache-hit != 'true'
@@ -197,7 +186,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-${{ runner.os }}-v5
+          key: libp11-0.4.12-arm64-v6
 
       # ─────────────────────────────────────────────
       # 13. Weitere Abhängigkeiten (gecacht)
@@ -207,7 +196,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-${{ runner.os }}-v4
+          key: deps-arm64-qt6.11.1-v5
 
       - name: Build Dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -219,7 +208,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-${{ runner.os }}-v4
+          key: deps-arm64-qt6.11.1-v5
 
       # ─────────────────────────────────────────────
       # 14. Nextcloud Desktop klonen
