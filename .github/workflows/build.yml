@@ -2,10 +2,8 @@ name: Build Nextcloud ARM64
 
 on:
   workflow_dispatch:
-    inputs:
-      nextcloud_version:
-        description: 'Nextcloud Version (z.B. v3.14.0)'
-        required: true
+  schedule:
+    - cron: '0 4 * * *'  # taeglich 04:00 UTC pruefen
 
 permissions:
   contents: write
@@ -22,17 +20,53 @@ jobs:
         uses: actions/checkout@v4
 
       # ─────────────────────────────────────────────
-      # 2. Perl PATH dauerhaft setzen
+      # 2. Neusten Nextcloud-Release ermitteln
+      # ─────────────────────────────────────────────
+      - name: Get latest Nextcloud version
+        id: nc-version
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod "https://api.github.com/repos/nextcloud/desktop/releases/latest" `
+            -Headers @{ "User-Agent" = "nextcloud-arm64-builder" }
+          $version = $release.tag_name
+          Write-Host "Neuester Release: $version"
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      # ─────────────────────────────────────────────
+      # 3. MSVC nativ ARM64 – ZUERST, vor Perl/GCC
+      #    arch: arm64 = nativer ARM64-Compiler
+      #    passend zum windows-11-arm Runner
+      # ─────────────────────────────────────────────
+      - name: Setup MSVC ARM64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      # ─────────────────────────────────────────────
+      # 4. Perl – nur perl\bin, KEIN c\bin (kein gcc)
       # ─────────────────────────────────────────────
       - name: Setup Perl
         shell: pwsh
         run: |
           "C:\Strawberry\perl\bin" | Add-Content $env:GITHUB_PATH
-          "C:\Strawberry\c\bin"    | Add-Content $env:GITHUB_PATH
           perl --version
 
       # ─────────────────────────────────────────────
-      # 3. Python + aqt
+      # 5. MSVC als Standard-Compiler bestätigen
+      # ─────────────────────────────────────────────
+      - name: Verify MSVC compiler
+        shell: pwsh
+        run: |
+          $cl = (Get-Command cl.exe -ErrorAction SilentlyContinue)?.Source
+          if (-not $cl) { throw "cl.exe nicht gefunden! MSVC-Setup fehlgeschlagen." }
+          Write-Host "cl.exe gefunden: $cl"
+          cl.exe 2>&1 | Select-Object -First 2
+          echo "CC=cl"  >> $env:GITHUB_ENV
+          echo "CXX=cl" >> $env:GITHUB_ENV
+
+      # ─────────────────────────────────────────────
+      # 6. Python + aqt
       # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -44,30 +78,30 @@ jobs:
         run: python -m pip install aqtinstall==3.3.*
 
       # ─────────────────────────────────────────────
-      # 4. Qt ARM64 installieren
+      # 7. Qt ARM64 nativ installieren
+      #    win64_msvc2022_arm64 = nativer ARM64-Build
+      #    kein cross_compiled mehr nötig
       # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
         run: |
-          python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64_cross_compiled `
+          python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64 `
             --outputdir C:\Qt `
-            --autodesktop `
             --modules qt5compat qtpositioning qtwebsockets
 
       - name: Install Qt ARM64 - WebEngine (best effort)
         shell: pwsh
         run: |
-          $modules = python -m aqt list-qt windows desktop --modules 6.9.0 win64_msvc2022_arm64_cross_compiled
+          $modules = python -m aqt list-qt windows desktop --modules 6.9.0 win64_msvc2022_arm64
           if ($modules -match "qtwebengine") {
             Write-Host "qtwebengine verfügbar - wird installiert"
-            python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64_cross_compiled `
-              --outputdir C:\Qt --autodesktop --modules qtwebengine
+            python -m aqt install-qt windows desktop 6.9.0 win64_msvc2022_arm64 `
+              --outputdir C:\Qt --modules qtwebengine
           } else {
             Write-Warning "qtwebengine nicht verfügbar für Qt 6.9.0 ARM64 - Build ohne WebEngine"
             echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
           }
 
-      # Qt-Pfad dynamisch ermitteln und als Env-Variable exportieren
       - name: Detect Qt ARM64 path
         id: qt-path
         shell: pwsh
@@ -86,21 +120,13 @@ jobs:
         run: python -m aqt list-qt windows desktop --arch 6.11.1
 
       # ─────────────────────────────────────────────
-      # 5. CMake + Ninja
+      # 8. CMake + Ninja
       # ─────────────────────────────────────────────
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
       # ─────────────────────────────────────────────
-      # 6. MSVC ARM64
-      # ─────────────────────────────────────────────
-      - name: Setup MSVC ARM64
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: arm64
-
-      # ─────────────────────────────────────────────
-      # 7. pkg-config
+      # 9. pkg-config
       # ─────────────────────────────────────────────
       - name: Install pkg-config
         shell: pwsh
@@ -117,7 +143,7 @@ jobs:
           }
 
       # ─────────────────────────────────────────────
-      # 8. vcpkg + SQLite für ARM64
+      # 10. vcpkg + SQLite für ARM64
       # ─────────────────────────────────────────────
       - name: Bootstrap vcpkg
         shell: pwsh
@@ -128,7 +154,7 @@ jobs:
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
 
       # ─────────────────────────────────────────────
-      # 9. OpenSSL (gecacht)
+      # 11. OpenSSL (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
@@ -150,7 +176,7 @@ jobs:
           key: openssl-3.3-arm64-${{ runner.os }}-v4
 
       # ─────────────────────────────────────────────
-      # 10. libp11 (gecacht)
+      # 12. libp11 (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
@@ -172,7 +198,7 @@ jobs:
           key: libp11-0.4.12-arm64-${{ runner.os }}-v5
 
       # ─────────────────────────────────────────────
-      # 11. Weitere Abhängigkeiten (gecacht)
+      # 13. Weitere Abhängigkeiten (gecacht)
       # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
@@ -194,12 +220,13 @@ jobs:
           key: deps-arm64-${{ runner.os }}-v4
 
       # ─────────────────────────────────────────────
-      # 12. Nextcloud Desktop klonen
+      # 14. Nextcloud Desktop klonen
       # ─────────────────────────────────────────────
       - name: Clone Nextcloud
         shell: pwsh
         run: |
-          $version = "${{ github.event.inputs.nextcloud_version }}"
+          $version = $env:VERSION
+          Write-Host "Klone Nextcloud $version"
           git clone https://github.com/nextcloud/desktop.git `
             --branch $version --depth 1 C:\build\nextcloud-src
           Set-Location C:\build\nextcloud-src
@@ -208,7 +235,7 @@ jobs:
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
       # ─────────────────────────────────────────────
-      # 13. Patches anwenden
+      # 15. Patches anwenden
       # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
@@ -218,7 +245,7 @@ jobs:
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
 
       # ─────────────────────────────────────────────
-      # 14. CMake konfigurieren
+      # 16. CMake konfigurieren
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
@@ -256,13 +283,13 @@ jobs:
             @webEngineArgs
 
       # ─────────────────────────────────────────────
-      # 15. Bauen
+      # 17. Bauen
       # ─────────────────────────────────────────────
       - name: Build
         run: cmake --build C:\build\nextcloud-build --parallel 4
 
       # ─────────────────────────────────────────────
-      # 16. Installieren + Deployment
+      # 18. Installieren + Deployment
       # ─────────────────────────────────────────────
       - name: Install and Deploy
         shell: pwsh
@@ -281,24 +308,24 @@ jobs:
             C:\build\nextcloud-arm64\bin\
 
       # ─────────────────────────────────────────────
-      # 17. ZIP erstellen
+      # 19. ZIP erstellen
       # ─────────────────────────────────────────────
       - name: Create ZIP
         shell: pwsh
         run: |
-          $version = "${{ github.event.inputs.nextcloud_version }}"
+          $version = $env:VERSION
           Compress-Archive -Path C:\build\nextcloud-arm64\* `
             -DestinationPath "Nextcloud-${version}-arm64-portable.zip"
 
       # ─────────────────────────────────────────────
-      # 18. Release veröffentlichen
+      # 20. Release veröffentlichen
       # ─────────────────────────────────────────────
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.event.inputs.nextcloud_version }}-arm64
-          name: "Nextcloud ${{ github.event.inputs.nextcloud_version }} ARM64 (inoffiziell)"
+          tag_name: ${{ env.VERSION }}-arm64
+          name: "Nextcloud ${{ env.VERSION }} ARM64 (inoffiziell)"
           body: |
             ## Nextcloud Desktop ARM64 – Inoffizieller Build
 
