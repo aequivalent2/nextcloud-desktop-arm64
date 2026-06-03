@@ -6,7 +6,6 @@ if ($env:QT_ARM64_DIR -and (Test-Path $env:QT_ARM64_DIR)) {
     $QtDir = $env:QT_ARM64_DIR
     Write-Host "Qt ARM64 aus Umgebungsvariable: $QtDir"
 } else {
-    # Dynamisch suchen - unabhaengig von der Qt-Version
     $QtInstallRoot = "C:\Qt"
     $QtDir = Get-ChildItem $QtInstallRoot -Recurse -Directory `
         | Where-Object { $_.Name -like "*arm64*" -and (Test-Path "$($_.FullName)\lib\cmake\Qt6") } `
@@ -23,16 +22,9 @@ if (-not (Test-Path $QtToolchain)) {
 }
 Write-Host "Qt Toolchain: $QtToolchain"
 
-# Host-Qt ermitteln (x64, von --autodesktop installiert)
-# Liegt eine Ebene hoeher als das ARM64-Verzeichnis
-$QtVersionDir = Split-Path $QtDir -Parent
-$QtHostDir = Get-ChildItem $QtVersionDir -Directory `
-    | Where-Object { $_.Name -like "*msvc*" -and $_.Name -notlike "*arm*" } `
-    | Select-Object -First 1 -ExpandProperty FullName
-if (-not $QtHostDir) {
-    throw "Qt Host (x64) Verzeichnis nicht gefunden unter $QtVersionDir"
-}
-Write-Host "Qt Host (x64) Verzeichnis: $QtHostDir"
+# HINWEIS: QT_HOST_PATH wird NICHT gesetzt.
+# Der Runner ist windows-11-arm (nativer ARM64), daher ist Host = Target.
+# QT_HOST_PATH ist nur bei Cross-Compilation noetig (x64-Host -> ARM64-Target).
 
 # Strawberry Perl C-Bins aus PATH entfernen (Konflikt mit MSVC)
 $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
@@ -61,7 +53,6 @@ Set-Location C:\build\qtkeychain-build
 cmake C:\build\qtkeychain-src `
   -G Ninja `
   "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
-  "-DQT_HOST_PATH=$QtHostDir" `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_INSTALL_PREFIX=C:\build\deps-arm64\qtkeychain `
   -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
@@ -73,18 +64,14 @@ cmake --install . --config Release
 git clone https://invent.kde.org/frameworks/karchive.git C:\build\karchive-src --depth 1
 New-Item -ItemType Directory -Force C:\build\karchive-build | Out-Null
 Set-Location C:\build\karchive-build
-
-C:\build\vcpkg\vcpkg.exe install zlib:arm64-windows bzip2:arm64-windows liblzma:arm64-windows zstd:arm64-windows --no-print-usage
-
 cmake C:\build\karchive-src `
   -G Ninja `
   "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
-  "-DQT_HOST_PATH=$QtHostDir" `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_INSTALL_PREFIX=C:\build\deps-arm64\kf6archive `
   -DBUILD_TESTING=OFF `
   "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
-  "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+  "-DQT_CHAINLOAD_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
   -DVCPKG_TARGET_TRIPLET=arm64-windows
 cmake --build . --parallel 4
 cmake --install .
@@ -96,7 +83,6 @@ Set-Location C:\build\kdsingleapp-build
 cmake C:\build\kdsingleapp-src `
   -G Ninja `
   "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
-  "-DQT_HOST_PATH=$QtHostDir" `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_INSTALL_PREFIX=C:\build\deps-arm64\kdsingleapp `
   -DKDSingleApplication_QT6=ON
