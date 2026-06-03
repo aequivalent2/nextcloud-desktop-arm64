@@ -128,17 +128,17 @@ jobs:
             }
           }
 
-      - name: Install NSIS
+      - name: Install WiX Toolset
         shell: pwsh
         run: |
-          choco install nsis -y --no-progress
-          $nsisPath = "C:\Program Files (x86)\NSIS"
-          if (Test-Path $nsisPath) {
-            $nsisPath | Add-Content $env:GITHUB_PATH
-            Write-Host "NSIS installiert: $nsisPath"
-          } else {
-            throw "NSIS nicht gefunden nach Installation"
-          }
+          choco install wixtoolset -y --no-progress
+          $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $wixPath) { throw "WiX Toolset nicht gefunden nach Installation" }
+          $wixBin = Join-Path $wixPath "bin"
+          $wixBin | Add-Content $env:GITHUB_PATH
+          Write-Host "WiX installiert: $wixBin"
+          & "$wixBin\candle.exe" -? 2>&1 | Select-Object -First 1
 
       - name: Install SVG converter
         shell: pwsh
@@ -347,45 +347,9 @@ jobs:
           Write-Host "DLLs in $BinDir"
           Get-ChildItem "$BinDir\*.dll" | Sort-Object Name | Select-Object Name
 
-      - name: Generate NSIS script
+      - name: Build MSI Installer
         shell: pwsh
-        run: .\scripts\generate-nsis.ps1
-
-      - name: Build NSIS Installer
-        shell: pwsh
-        run: |
-          $version = $env:VERSION
-          $BinDir  = "C:\build\nextcloud-arm64\bin"
-
-          $licSrc = "C:\build\nextcloud-src\COPYING"
-          $licDst = "$BinDir\COPYING"
-          if (Test-Path $licSrc) {
-            Copy-Item $licSrc $licDst -Force
-          } else {
-            Set-Content $licDst "Nextcloud Desktop Client ARM64 Build"
-          }
-
-          $icoSrc = "C:\build\nextcloud-src\src\gui\nextcloud.ico"
-          $icoDst = "$BinDir\nextcloud.ico"
-          if (Test-Path $icoSrc) { Copy-Item $icoSrc $icoDst -Force }
-
-          & makensis "C:\build\nextcloud-installer.nsi"
-          if ($LASTEXITCODE -ne 0) { throw "NSIS fehlgeschlagen (Exit: $LASTEXITCODE)" }
-
-          $out = "C:\build\Nextcloud-${version}-arm64-Setup.exe"
-          if (-not (Test-Path $out)) { throw "Installer nicht gefunden: $out" }
-          $mb = [math]::Round((Get-Item $out).Length/1MB,1)
-          Write-Host "Installer: $out ($mb MB)"
-          Copy-Item $out "$env:GITHUB_WORKSPACE\" -Force
-
-      - name: Create portable ZIP
-        shell: pwsh
-        run: |
-          $version = $env:VERSION
-          $zip = "$env:GITHUB_WORKSPACE\Nextcloud-${version}-arm64-portable.zip"
-          Compress-Archive -Path C:\build\nextcloud-arm64\* -DestinationPath $zip
-          $mb = [math]::Round((Get-Item $zip).Length/1MB,1)
-          Write-Host "ZIP: $zip ($mb MB)"
+        run: .\scripts\generate-msi.ps1
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2
@@ -397,8 +361,8 @@ jobs:
             Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
 
-            Setup.exe: Installer mit Startmenue-Eintrag und Deinstaller (empfohlen).
-            portable.zip: Einfach entpacken und nextcloud.exe starten.
+            .msi: Standard Windows Installer mit Startmenue, Desktop-Verknuepfung
+            und sauberem Deinstaller ueber "Apps & Features".
 
             Systemvoraussetzungen: Windows 11 ARM64 oder Windows 10 ARM64 ab Version 1903.
             Alle Abhaengigkeiten sind enthalten (Qt 6.11.1, OpenSSL 3.3, MSVC Runtime, libp11).
@@ -406,5 +370,4 @@ jobs:
             Hinweis: Dies ist kein offizielles Nextcloud-Produkt.
             Offizielle Builds unter https://nextcloud.com/install/
           files: |
-            Nextcloud-*-arm64-Setup.exe
-            Nextcloud-*-arm64-portable.zip
+            Nextcloud-*-arm64.msi
