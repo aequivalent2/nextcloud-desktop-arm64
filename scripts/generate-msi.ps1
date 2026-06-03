@@ -74,6 +74,7 @@ Write-Host "Harveste $BinDir ..."
 & $heat dir $BinDir `
     -cg MainFiles `
     -dr INSTALLDIR `
+    -ag `
     -ke `
     -sfrag `
     -srd `
