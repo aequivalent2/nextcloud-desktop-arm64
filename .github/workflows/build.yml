@@ -13,15 +13,9 @@ jobs:
     runs-on: windows-11-arm
 
     steps:
-      # ─────────────────────────────────────────────
-      # 1. Checkout
-      # ─────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ─────────────────────────────────────────────
-      # 2. Neusten Nextcloud-Release ermitteln
-      # ─────────────────────────────────────────────
       - name: Get latest Nextcloud version
         id: nc-version
         shell: pwsh
@@ -33,26 +27,17 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_ENV
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
-      # ─────────────────────────────────────────────
-      # 3. MSVC nativ ARM64
-      # ─────────────────────────────────────────────
       - name: Setup MSVC ARM64
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
 
-      # ─────────────────────────────────────────────
-      # 4. Perl (nur perl\bin, kein GCC)
-      # ─────────────────────────────────────────────
       - name: Setup Perl
         shell: pwsh
         run: |
           "C:\Strawberry\perl\bin" | Add-Content $env:GITHUB_PATH
           perl --version
 
-      # ─────────────────────────────────────────────
-      # 5. MSVC als Standard-Compiler bestätigen
-      # ─────────────────────────────────────────────
       - name: Verify MSVC compiler
         shell: pwsh
         run: |
@@ -63,9 +48,6 @@ jobs:
           echo "CC=cl"  >> $env:GITHUB_ENV
           echo "CXX=cl" >> $env:GITHUB_ENV
 
-      # ─────────────────────────────────────────────
-      # 6. Windows SDK Pfade setzen
-      # ─────────────────────────────────────────────
       - name: Setup Windows SDK paths
         shell: pwsh
         run: |
@@ -77,22 +59,15 @@ jobs:
                       Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name
           $msvcLib = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\lib\arm64"
           $msvcInc = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\include"
-
           "$sdkBin" | Add-Content $env:GITHUB_PATH
-
           $libPath = "$sdkLib\um\arm64;$sdkLib\ucrt\arm64;$msvcLib"
           $incPath = "$msvcInc;$sdkInc\ucrt;$sdkInc\um;$sdkInc\shared;$sdkInc\winrt;$sdkInc\cppwinrt"
-
           echo "LIB=$libPath"     >> $env:GITHUB_ENV
           echo "INCLUDE=$incPath" >> $env:GITHUB_ENV
           echo "VSVER=$vsVer"     >> $env:GITHUB_ENV
-
           Write-Host "SDK Version: $sdkVer"
           Write-Host "MSVC Version: $vsVer"
 
-      # ─────────────────────────────────────────────
-      # 7. Python + aqt
-      # ─────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -102,9 +77,6 @@ jobs:
         shell: pwsh
         run: python -m pip install aqtinstall==3.3.*
 
-      # ─────────────────────────────────────────────
-      # 8. Qt 6.11.1 ARM64
-      # ─────────────────────────────────────────────
       - name: Install Qt ARM64
         shell: pwsh
         run: |
@@ -133,21 +105,15 @@ jobs:
             Where-Object { $_.Name -like "*arm64*" } |
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $QtDir) {
-            throw "Qt ARM64-Verzeichnis nicht gefunden. Verfuegbar: $(Get-ChildItem $QtBase -Directory | Select-Object -ExpandProperty Name)"
+            throw "Qt ARM64-Verzeichnis nicht gefunden."
           }
           Write-Host "Qt ARM64 gefunden: $QtDir"
           echo "QT_ARM64_DIR=$QtDir" >> $env:GITHUB_ENV
           "$QtDir\bin" | Add-Content $env:GITHUB_PATH
 
-      # ─────────────────────────────────────────────
-      # 9. CMake + Ninja
-      # ─────────────────────────────────────────────
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
-      # ─────────────────────────────────────────────
-      # 10. pkg-config
-      # ─────────────────────────────────────────────
       - name: Install pkg-config
         shell: pwsh
         run: |
@@ -162,9 +128,6 @@ jobs:
             }
           }
 
-      # ─────────────────────────────────────────────
-      # 10b. NSIS (Installer-Erstellung)
-      # ─────────────────────────────────────────────
       - name: Install NSIS
         shell: pwsh
         run: |
@@ -177,9 +140,6 @@ jobs:
             throw "NSIS nicht gefunden nach Installation"
           }
 
-      # ─────────────────────────────────────────────
-      # 10c. SVG-Konverter fuer Icon-Generierung
-      # ─────────────────────────────────────────────
       - name: Install SVG converter
         shell: pwsh
         run: |
@@ -189,15 +149,9 @@ jobs:
             $chocoBin = "C:\ProgramData\chocolatey\bin"
             if (Test-Path $chocoBin) {
               $chocoBin | Add-Content $env:GITHUB_PATH
-            } else {
-              throw "rsvg-convert konnte nicht installiert werden"
             }
           }
-          rsvg-convert --version
 
-      # ─────────────────────────────────────────────
-      # 11. vcpkg + Abhaengigkeiten
-      # ─────────────────────────────────────────────
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
@@ -212,9 +166,6 @@ jobs:
             --no-print-usage
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
 
-      # ─────────────────────────────────────────────
-      # 12. OpenSSL (gecacht)
-      # ─────────────────────────────────────────────
       - name: Cache OpenSSL
         id: cache-openssl
         uses: actions/cache@v4
@@ -234,9 +185,6 @@ jobs:
           path: C:\build\openssl-arm64
           key: openssl-3.3-arm64-v5
 
-      # ─────────────────────────────────────────────
-      # 13. libp11 (gecacht)
-      # ─────────────────────────────────────────────
       - name: Cache libp11
         id: cache-libp11
         uses: actions/cache@v4
@@ -256,9 +204,6 @@ jobs:
           path: C:\build\libp11-arm64
           key: libp11-0.4.12-arm64-v6
 
-      # ─────────────────────────────────────────────
-      # 14. Weitere Abhaengigkeiten (gecacht)
-      # ─────────────────────────────────────────────
       - name: Cache Dependencies
         id: cache-deps
         uses: actions/cache@v4
@@ -278,9 +223,6 @@ jobs:
           path: C:\build\deps-arm64
           key: deps-arm64-qt6.11.1-v6
 
-      # ─────────────────────────────────────────────
-      # 15. Nextcloud Desktop klonen
-      # ─────────────────────────────────────────────
       - name: Clone Nextcloud
         shell: pwsh
         run: |
@@ -293,9 +235,6 @@ jobs:
           git clone https://github.com/KDAB/KDSingleApplication.git `
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
-      # ─────────────────────────────────────────────
-      # 16. Patches anwenden + libp11 direkt einlinken
-      # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
         run: |
@@ -321,21 +260,14 @@ jobs:
           Write-Host "libp11 Injection abgeschlossen:"
           Select-String -Path $syncCmake -Pattern 'libp11'
 
-      # ─────────────────────────────────────────────
-      # 17. CMake konfigurieren
-      # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
         run: |
           $QtToolchain = "$env:QT_ARM64_DIR\lib\cmake\Qt6\qt.toolchain.cmake"
-
           $env:PATH = ($env:PATH -split ';' |
             Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
-
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
-
           $prefixPath = "C:/build/deps-arm64/ecm;C:/build/deps-arm64/qtkeychain;C:/build/deps-arm64/kf6archive;C:/build/deps-arm64/kdsingleapp"
-
           $webEngineArgs = @()
           if ($env:NO_WEBENGINE -eq "1") {
             Write-Warning "Konfiguriere ohne WebEngine"
@@ -346,7 +278,6 @@ jobs:
               "-DQt6WebEngineWidgets_DIR=$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineWidgets"
             )
           }
-
           cmake C:\build\nextcloud-src `
             -B C:\build\nextcloud-build `
             -G Ninja `
@@ -364,9 +295,6 @@ jobs:
             "-DZLIB_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             @webEngineArgs
 
-      # ─────────────────────────────────────────────
-      # 18. Bauen
-      # ─────────────────────────────────────────────
       - name: Build
         shell: pwsh
         run: |
@@ -374,350 +302,208 @@ jobs:
             Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
           cmake --build C:\build\nextcloud-build --parallel 4
 
-      # ─────────────────────────────────────────────
-      # 19. Installieren + Deployment (alle DLLs)
-      # ─────────────────────────────────────────────
       - name: Install and Deploy
         shell: pwsh
         run: |
           $InstallDir = "C:\build\nextcloud-arm64"
           $BinDir     = "$InstallDir\bin"
 
-          # Nextcloud installieren
           cmake --install C:\build\nextcloud-build
 
-          # qt6keychain.dll in Qt-bin-Ordner fuer windeployqt
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
             "$env:QT_ARM64_DIR\bin\" -Force
 
-          # windeployqt – kopiert alle Qt-DLLs, Plugins, QML-Module
           & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
             --release `
             --no-translations `
             "$BinDir\nextcloud.exe"
 
-          # libp11 (PKCS11-Smart-Card-Support)
           Copy-Item C:\build\libp11-arm64\libp11.dll "$BinDir\" -Force
-
-          # vcpkg DLLs (sqlite3, zlib, bzip2, liblzma, zstd)
           Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll "$BinDir\" -Force
 
-          # OpenSSL DLLs (libssl / libcrypto) – werden zum Laufzeit gebraucht
           $opensslBin = "C:\build\openssl-arm64\bin"
           if (Test-Path $opensslBin) {
             Copy-Item "$opensslBin\*.dll" "$BinDir\" -Force
-            Write-Host "OpenSSL DLLs kopiert:"
-            Get-ChildItem "$opensslBin\*.dll" | Select-Object Name
           } else {
-            # Fallback: direkt im openssl-arm64-Wurzelverzeichnis suchen
             $fallback = Get-ChildItem "C:\build\openssl-arm64" -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue
-            foreach ($dll in $fallback) {
-              Copy-Item $dll.FullName "$BinDir\" -Force
-            }
-            Write-Host "OpenSSL DLLs (Fallback) kopiert: $($fallback.Count) Datei(en)"
+            foreach ($dll in $fallback) { Copy-Item $dll.FullName "$BinDir\" -Force }
           }
 
-          # MSVC / VC++ Runtime DLLs fuer ARM64
-          # Diese sind noetig wenn das Zielsystem kein Visual C++ Redistributable hat
-          $vsVer    = $env:VSVER
-          $msvcBin  = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\bin\Hostarm64\arm64"
-          $runtimes = @(
-            "vcruntime140.dll",
-            "vcruntime140_1.dll",
-            "msvcp140.dll",
-            "msvcp140_1.dll",
-            "msvcp140_2.dll",
-            "concrt140.dll"
-          )
-          foreach ($rt in $runtimes) {
-            $src = Join-Path $msvcBin $rt
-            if (Test-Path $src) {
-              Copy-Item $src "$BinDir\" -Force
-              Write-Host "Runtime kopiert: $rt"
-            } else {
-              Write-Warning "Runtime nicht gefunden: $src"
-            }
+          $vsVer   = $env:VSVER
+          $msvcBin = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\bin\Hostarm64\arm64"
+          @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll","msvcp140_1.dll","msvcp140_2.dll","concrt140.dll") | ForEach-Object {
+            $src = Join-Path $msvcBin $_
+            if (Test-Path $src) { Copy-Item $src "$BinDir\" -Force; Write-Host "Runtime: $_" }
           }
 
-          # Universal CRT (ucrtbase.dll + api-ms-win-crt-*.dll)
-          # Noetig fuer Systeme ohne aktuelles Windows Update
           $ucrtDir = "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\arm64"
-          if (Test-Path $ucrtDir) {
-            Copy-Item "$ucrtDir\*.dll" "$BinDir\" -Force
-            Write-Host "UCRT DLLs kopiert: $(Get-ChildItem $ucrtDir -Filter '*.dll').Count Datei(en)"
-          } else {
-            Write-Warning "UCRT-Verzeichnis nicht gefunden: $ucrtDir"
-          }
+          if (Test-Path $ucrtDir) { Copy-Item "$ucrtDir\*.dll" "$BinDir\" -Force }
 
-          Write-Host "`n=== Finale DLL-Liste in $BinDir ===`n"
-          Get-ChildItem "$BinDir\*.dll" | Sort-Object Name | Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB)}}
+          Write-Host "DLLs in $BinDir"
+          Get-ChildItem "$BinDir\*.dll" | Sort-Object Name | Select-Object Name
 
-      # ─────────────────────────────────────────────
-      # 20. NSIS-Installationsskript generieren
-      # ─────────────────────────────────────────────
       - name: Generate NSIS script
         shell: pwsh
         run: |
-          $version     = $env:VERSION
-          # Version ohne führendes 'v' fuer NSIS (z.B. "3.14.0")
-          $verClean    = $version -replace '^v',''
-          $InstallDir  = "C:\build\nextcloud-arm64"
-          $BinDir      = "$InstallDir\bin"
-          $ScriptPath  = "C:\build\nextcloud-installer.nsi"
+          $version    = $env:VERSION
+          $verClean   = $version -replace '^v',''
+          $BinDir     = "C:\build\nextcloud-arm64\bin"
+          $ScriptPath = "C:\build\nextcloud-installer.nsi"
 
-          # Alle Dateien im bin-Verzeichnis auflisten und als NSIS File-Zeilen formatieren
-          $fileLines = Get-ChildItem "$BinDir" -File | ForEach-Object {
+          $fileLines = (Get-ChildItem $BinDir -File | ForEach-Object {
             "  File `"$($_.FullName)`""
-          }
-          $fileLinesStr = $fileLines -join "`r`n"
+          }) -join "`r`n"
 
-          # Unterordner (Qt-Plugins, QML etc.) rekursiv einbinden
           $subdirSections = ""
-          Get-ChildItem "$BinDir" -Directory | ForEach-Object {
-            $subName = $_.Name
-            $subPath = $_.FullName
-            $subFiles = Get-ChildItem $subPath -File -Recurse
+          Get-ChildItem $BinDir -Directory | ForEach-Object {
+            $subName  = $_.Name
+            $subFiles = Get-ChildItem $_.FullName -File -Recurse
             if ($subFiles.Count -gt 0) {
-              $subdirSections += "`r`n  ; Unterordner: $subName`r`n"
-              $subdirSections += "  SetOutPath `"`$INSTDIR\$subName`"`r`n"
+              $subdirSections += "  SetOutPath ```"`$INSTDIR\$subName```"`r`n"
               $subFiles | ForEach-Object {
-                $rel = $_.FullName.Substring($subPath.Length + 1)
-                $subdirSections += "  File `"$($_.FullName)`"`r`n"
+                $subdirSections += "  File ```"$($_.FullName)```"`r`n"
               }
             }
           }
 
-          # Uninstall-Dateiliste (alle installierten Dateien entfernen)
-          $deleteLines = Get-ChildItem "$BinDir" -File | ForEach-Object {
-            "  Delete `"`$INSTDIR\$($_.Name)`""
-          }
-          $deleteLinesStr = $deleteLines -join "`r`n"
+          $deleteLines = (Get-ChildItem $BinDir -File | ForEach-Object {
+            "  Delete ```"`$INSTDIR\$($_.Name)```""
+          }) -join "`r`n"
 
-          $nsiScript = @"
-; Nextcloud Desktop ARM64 – NSIS Installer Script
-; Automatisch generiert vom GitHub Actions Build
-
-Unicode True
-
-!define APPNAME      "Nextcloud"
-!define APPVERSION   "$verClean"
-!define APPTAG       "$version"
-!define PUBLISHER    "Nextcloud GmbH (inoffizieller ARM64-Build)"
-!define APPEXE       "nextcloud.exe"
-!define INSTDIR_REG  "Software\Nextcloud\NextcloudDesktop-ARM64"
-!define UNINSTKEY    "Software\Microsoft\Windows\CurrentVersion\Uninstall\NextcloudDesktopARM64"
-
-Name      "`${APPNAME} `${APPVERSION} ARM64"
-OutFile   "C:\build\Nextcloud-`${APPTAG}-arm64-Setup.exe"
-InstallDir "`$PROGRAMFILES64\Nextcloud"
-InstallDirRegKey HKCU "`${INSTDIR_REG}" "InstallPath"
-RequestExecutionLevel admin
-SetCompressor /SOLID lzma
-
-; ── Moderne UI ──────────────────────────────────────────
-!include "MUI2.nsh"
-!include "LogicLib.nsh"
-
-!define MUI_ABORTWARNING
-!define MUI_ICON   "`$EXEDIR\nextcloud.ico"
-
-; Seiten
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE   "`$EXEDIR\COPYING"
-!insertmacro MUI_PAGE_DIRECTORY
-!insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
-
-!insertmacro MUI_UNPAGE_CONFIRM
-!insertmacro MUI_UNPAGE_INSTFILES
-
-!insertmacro MUI_LANGUAGE "German"
-!insertmacro MUI_LANGUAGE "English"
-
-; ── Sections ────────────────────────────────────────────
-Section "Nextcloud Desktop" SecMain
-
-  SectionIn RO  ; Pflichtkomponente
-
-  SetOutPath "`$INSTDIR"
-$fileLinesStr
-$subdirSections
-
-  ; Registry-Einträge (Installationspfad)
-  WriteRegStr HKCU "`${INSTDIR_REG}" "InstallPath" "`$INSTDIR"
-  WriteRegStr HKCU "`${INSTDIR_REG}" "Version"     "`${APPVERSION}"
-
-  ; Systemsteuerung – Software-Eintrag
-  WriteRegStr   HKLM "`${UNINSTKEY}" "DisplayName"          "`${APPNAME} `${APPVERSION} ARM64"
-  WriteRegStr   HKLM "`${UNINSTKEY}" "DisplayVersion"       "`${APPVERSION}"
-  WriteRegStr   HKLM "`${UNINSTKEY}" "Publisher"            "`${PUBLISHER}"
-  WriteRegStr   HKLM "`${UNINSTKEY}" "InstallLocation"      "`$INSTDIR"
-  WriteRegStr   HKLM "`${UNINSTKEY}" "DisplayIcon"          "`$INSTDIR\`${APPEXE}"
-  WriteRegStr   HKLM "`${UNINSTKEY}" "UninstallString"      "`$INSTDIR\uninstall.exe"
-  WriteRegDWORD HKLM "`${UNINSTKEY}" "NoModify"             1
-  WriteRegDWORD HKLM "`${UNINSTKEY}" "NoRepair"             1
-
-  ; Größe schätzen (in KB)
-  `${GetSize} "`$INSTDIR" "/S=0K" `$0 `$1 `$2
-  IntFmt `$0 "0x%08X" `$0
-  WriteRegDWORD HKLM "`${UNINSTKEY}" "EstimatedSize" "`$0"
-
-  ; Uninstaller erzeugen
-  WriteUninstaller "`$INSTDIR\uninstall.exe"
-
-SectionEnd
-
-Section "Startmenü-Verknüpfung" SecStartMenu
-  CreateDirectory "`$SMPROGRAMS\Nextcloud"
-  CreateShortcut  "`$SMPROGRAMS\Nextcloud\Nextcloud.lnk" "`$INSTDIR\`${APPEXE}"
-  CreateShortcut  "`$SMPROGRAMS\Nextcloud\Deinstallieren.lnk" "`$INSTDIR\uninstall.exe"
-SectionEnd
-
-Section "Desktop-Verknüpfung" SecDesktop
-  CreateShortcut "`$DESKTOP\Nextcloud.lnk" "`$INSTDIR\`${APPEXE}"
-SectionEnd
-
-Section "Autostart" SecAutostart
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" `
-    "Nextcloud" "`"`$INSTDIR\`${APPEXE}`""
-SectionEnd
-
-; ── Uninstaller ─────────────────────────────────────────
-Section "Uninstall"
-  ; Dateien entfernen
-$deleteLinesStr
-  RMDir /r "`$INSTDIR\bearer"
-  RMDir /r "`$INSTDIR\iconengines"
-  RMDir /r "`$INSTDIR\imageformats"
-  RMDir /r "`$INSTDIR\networkinformation"
-  RMDir /r "`$INSTDIR\platforms"
-  RMDir /r "`$INSTDIR\platformthemes"
-  RMDir /r "`$INSTDIR\position"
-  RMDir /r "`$INSTDIR\printsupport"
-  RMDir /r "`$INSTDIR\qml"
-  RMDir /r "`$INSTDIR\styles"
-  RMDir /r "`$INSTDIR\tls"
-  Delete "`$INSTDIR\uninstall.exe"
-  RMDir  "`$INSTDIR"
-
-  ; Verknüpfungen entfernen
-  Delete "`$SMPROGRAMS\Nextcloud\Nextcloud.lnk"
-  Delete "`$SMPROGRAMS\Nextcloud\Deinstallieren.lnk"
-  RMDir  "`$SMPROGRAMS\Nextcloud"
-  Delete "`$DESKTOP\Nextcloud.lnk"
-
-  ; Autostart entfernen
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nextcloud"
-
-  ; Registry aufräumen
-  DeleteRegKey HKCU "`${INSTDIR_REG}"
-  DeleteRegKey HKLM "`${UNINSTKEY}"
-
-  MessageBox MB_ICONINFORMATION "Nextcloud wurde erfolgreich deinstalliert."
-SectionEnd
-
-; ── Seiten-Beschreibungen ────────────────────────────────
-!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT `${SecMain}      "Nextcloud Desktop Client (Pflicht)"
-  !insertmacro MUI_DESCRIPTION_TEXT `${SecStartMenu} "Verknüpfungen im Startmenü erstellen"
-  !insertmacro MUI_DESCRIPTION_TEXT `${SecDesktop}   "Verknüpfung auf dem Desktop erstellen"
-  !insertmacro MUI_DESCRIPTION_TEXT `${SecAutostart} "Nextcloud beim Windows-Start automatisch starten"
-!insertmacro MUI_FUNCTION_DESCRIPTION_END
+          $nsi = @"
+ Unicode True
+ !define APPNAME    "Nextcloud"
+ !define APPVERSION "$verClean"
+ !define APPTAG     "$version"
+ !define APPEXE     "nextcloud.exe"
+ !define UNREG      "Software\Microsoft\Windows\CurrentVersion\Uninstall\NextcloudDesktopARM64"
+ !define INREG      "Software\Nextcloud\NextcloudDesktop-ARM64"
+ Name      "`${APPNAME} `${APPVERSION} ARM64"
+ OutFile   "C:\build\Nextcloud-`${APPTAG}-arm64-Setup.exe"
+ InstallDir "`$PROGRAMFILES64\Nextcloud"
+ InstallDirRegKey HKCU "`${INREG}" "InstallPath"
+ RequestExecutionLevel admin
+ SetCompressor /SOLID lzma
+ !include "MUI2.nsh"
+ !define MUI_ABORTWARNING
+ !insertmacro MUI_PAGE_WELCOME
+ !insertmacro MUI_PAGE_DIRECTORY
+ !insertmacro MUI_PAGE_INSTFILES
+ !insertmacro MUI_PAGE_FINISH
+ !insertmacro MUI_UNPAGE_CONFIRM
+ !insertmacro MUI_UNPAGE_INSTFILES
+ !insertmacro MUI_LANGUAGE "German"
+ !insertmacro MUI_LANGUAGE "English"
+ Section "Nextcloud" SecMain
+   SectionIn RO
+   SetOutPath "`$INSTDIR"
+ $fileLines
+ $subdirSections
+   WriteRegStr HKCU "`${INREG}" "InstallPath" "`$INSTDIR"
+   WriteRegStr   HKLM "`${UNREG}" "DisplayName"     "`${APPNAME} `${APPVERSION} ARM64"
+   WriteRegStr   HKLM "`${UNREG}" "DisplayVersion"  "`${APPVERSION}"
+   WriteRegStr   HKLM "`${UNREG}" "InstallLocation" "`$INSTDIR"
+   WriteRegStr   HKLM "`${UNREG}" "DisplayIcon"     "`$INSTDIR\`${APPEXE}"
+   WriteRegStr   HKLM "`${UNREG}" "UninstallString" "`$INSTDIR\uninstall.exe"
+   WriteRegDWORD HKLM "`${UNREG}" "NoModify" 1
+   WriteRegDWORD HKLM "`${UNREG}" "NoRepair"  1
+   WriteUninstaller "`$INSTDIR\uninstall.exe"
+ SectionEnd
+ Section "Startmenue" SecStartMenu
+   CreateDirectory "`$SMPROGRAMS\Nextcloud"
+   CreateShortcut  "`$SMPROGRAMS\Nextcloud\Nextcloud.lnk" "`$INSTDIR\`${APPEXE}"
+   CreateShortcut  "`$SMPROGRAMS\Nextcloud\Deinstallieren.lnk" "`$INSTDIR\uninstall.exe"
+ SectionEnd
+ Section "Desktop" SecDesktop
+   CreateShortcut "`$DESKTOP\Nextcloud.lnk" "`$INSTDIR\`${APPEXE}"
+ SectionEnd
+ Section "Autostart" SecAutostart
+   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nextcloud" "`"`$INSTDIR\`${APPEXE}`""
+ SectionEnd
+ Section "Uninstall"
+ $deleteLines
+   RMDir /r "`$INSTDIR\bearer"
+   RMDir /r "`$INSTDIR\iconengines"
+   RMDir /r "`$INSTDIR\imageformats"
+   RMDir /r "`$INSTDIR\networkinformation"
+   RMDir /r "`$INSTDIR\platforms"
+   RMDir /r "`$INSTDIR\platformthemes"
+   RMDir /r "`$INSTDIR\position"
+   RMDir /r "`$INSTDIR\printsupport"
+   RMDir /r "`$INSTDIR\qml"
+   RMDir /r "`$INSTDIR\styles"
+   RMDir /r "`$INSTDIR\tls"
+   Delete "`$INSTDIR\uninstall.exe"
+   RMDir  "`$INSTDIR"
+   Delete "`$SMPROGRAMS\Nextcloud\Nextcloud.lnk"
+   Delete "`$SMPROGRAMS\Nextcloud\Deinstallieren.lnk"
+   RMDir  "`$SMPROGRAMS\Nextcloud"
+   Delete "`$DESKTOP\Nextcloud.lnk"
+   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Nextcloud"
+   DeleteRegKey HKCU "`${INREG}"
+   DeleteRegKey HKLM "`${UNREG}"
+ SectionEnd
 "@
+          Set-Content -Path $ScriptPath -Value $nsi -Encoding UTF8
+          Write-Host "NSIS-Skript: $ScriptPath ($(($nsi -split '`n').Count) Zeilen)"
 
-          Set-Content -Path $ScriptPath -Value $nsiScript -Encoding UTF8
-          Write-Host "NSIS-Skript erstellt: $ScriptPath"
-          Write-Host "Zeilen: $(($nsiScript -split '\n').Count)"
-
-      # ─────────────────────────────────────────────
-      # 21. NSIS Installer kompilieren
-      # ─────────────────────────────────────────────
       - name: Build NSIS Installer
         shell: pwsh
         run: |
           $version = $env:VERSION
 
-          # COPYING-Datei fuer NSIS-Lizenzseite vorbereiten
           $licSrc = "C:\build\nextcloud-src\COPYING"
           $licDst = "C:\build\nextcloud-arm64\bin\COPYING"
           if (Test-Path $licSrc) {
             Copy-Item $licSrc $licDst -Force
           } else {
-            "Nextcloud Desktop Client - ARM64 Build`nSiehe https://github.com/nextcloud/desktop fuer Lizenzinformationen." |
-              Set-Content $licDst
+            Set-Content $licDst "Nextcloud Desktop Client ARM64 Build"
           }
 
-          # Nextcloud-Icon fuer Installer vorbereiten
           $icoSrc = "C:\build\nextcloud-src\src\gui\nextcloud.ico"
           $icoDst = "C:\build\nextcloud-arm64\bin\nextcloud.ico"
-          if (Test-Path $icoSrc) {
-            Copy-Item $icoSrc $icoDst -Force
-          }
+          if (Test-Path $icoSrc) { Copy-Item $icoSrc $icoDst -Force }
 
-          # NSIS kompilieren (makensis ist nach PATH hinzugefuegt worden)
-          Write-Host "Kompiliere NSIS-Installer..."
           & makensis "C:\build\nextcloud-installer.nsi"
+          if ($LASTEXITCODE -ne 0) { throw "NSIS fehlgeschlagen (Exit: $LASTEXITCODE)" }
 
-          if ($LASTEXITCODE -ne 0) {
-            throw "NSIS-Kompilierung fehlgeschlagen (Exit-Code: $LASTEXITCODE)"
-          }
+          $out = "C:\build\Nextcloud-${version}-arm64-Setup.exe"
+          if (-not (Test-Path $out)) { throw "Installer nicht gefunden: $out" }
+          $mb = [math]::Round((Get-Item $out).Length/1MB,1)
+          Write-Host "Installer: $out ($mb MB)"
+          Copy-Item $out "$env:GITHUB_WORKSPACE\" -Force
 
-          $installerFile = "C:\build\Nextcloud-${version}-arm64-Setup.exe"
-          if (-not (Test-Path $installerFile)) {
-            throw "Installer-Datei nicht gefunden: $installerFile"
-          }
-
-          $sizeMB = [math]::Round((Get-Item $installerFile).Length / 1MB, 1)
-          Write-Host "Installer erstellt: $installerFile ($sizeMB MB)"
-
-          # In Workspace kopieren fuer Release-Upload
-          Copy-Item $installerFile "$env:GITHUB_WORKSPACE\" -Force
-
-      # ─────────────────────────────────────────────
-      # 22. ZIP (portable Variante – optional)
-      # ─────────────────────────────────────────────
       - name: Create portable ZIP
         shell: pwsh
         run: |
           $version = $env:VERSION
-          Compress-Archive -Path C:\build\nextcloud-arm64\* `
-            -DestinationPath "$env:GITHUB_WORKSPACE\Nextcloud-${version}-arm64-portable.zip"
-          $sizeMB = [math]::Round((Get-Item "$env:GITHUB_WORKSPACE\Nextcloud-${version}-arm64-portable.zip").Length / 1MB, 1)
-          Write-Host "Portable ZIP erstellt ($sizeMB MB)"
+          $zip = "$env:GITHUB_WORKSPACE\Nextcloud-${version}-arm64-portable.zip"
+          Compress-Archive -Path C:\build\nextcloud-arm64\* -DestinationPath $zip
+          $mb = [math]::Round((Get-Item $zip).Length/1MB,1)
+          Write-Host "ZIP: $zip ($mb MB)"
 
-      # ─────────────────────────────────────────────
-      # 23. Release veroeffentlichen (Installer + ZIP)
-      # ─────────────────────────────────────────────
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.VERSION }}-arm64
-          name: "Nextcloud ${{ env.VERSION }} ARM64 (inoffiziell)"
-          body: |
-            ## Nextcloud Desktop ARM64 – Inoffizieller Build
+          name: Nextcloud ${{ env.VERSION }} ARM64 (inoffiziell)
+          body: >-
+            Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
+            (Surface Pro X, Snapdragon X Elite, etc.).
 
-            Nativer ARM64-Build für Windows on ARM Geräte (Surface Pro X, Snapdragon X Elite, etc.).
 
-            ### Downloads
-            | Datei | Beschreibung |
-            |-------|--------------|
-            | `Nextcloud-*-arm64-Setup.exe` | **Empfohlen** – Installer mit Startmenü-Eintrag & Deinstaller |
-            | `Nextcloud-*-arm64-portable.zip` | Portable – einfach entpacken & starten |
+            Setup.exe: Installer mit Startmenue-Eintrag und Deinstaller (empfohlen).
 
-            ### Systemvoraussetzungen
-            - Windows 11 ARM64 (oder Windows 10 ARM64 ab Version 1903)
-            - Keine zusätzliche Software nötig – alle Abhängigkeiten sind enthalten
+            portable.zip: Einfach entpacken und starten.
 
-            ### Enthaltene Komponenten
-            - Qt 6.11.1 (ARM64)
-            - OpenSSL 3.3 (ARM64)
-            - MSVC Runtime (ARM64)
-            - libp11 / PKCS11 Smart-Card-Support
-            - SQLite3, zlib und weitere Abhängigkeiten
 
-            ### Hinweis
-            Dies ist kein offizielles Nextcloud-Produkt. Offizielle Builds unter [nextcloud.com](https://nextcloud.com/install/).
+            Systemvoraussetzungen: Windows 11 ARM64 oder Windows 10 ARM64 ab Version 1903.
+            Alle Abhaengigkeiten sind enthalten (Qt 6.11.1, OpenSSL 3.3, MSVC Runtime, libp11).
+
+
+            Hinweis: Dies ist kein offizielles Nextcloud-Produkt.
+            Offizielle Builds unter https://nextcloud.com/install/
           files: |
             Nextcloud-*-arm64-Setup.exe
             Nextcloud-*-arm64-portable.zip
