@@ -280,6 +280,14 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 16. Patches anwenden
+      #
+      # Zusätzlich zum git-Patch wird src/libsync/CMakeLists.txt direkt
+      # per PowerShell modifiziert, um libp11.lib explizit einzulinken.
+      # Nextclouds CMakeLists.txt kennt LIBP11_LIBRARIES nicht von selbst –
+      # es bindet libp11 nur über PkgConfig::OPENSC-LIBP11 ein, das unter
+      # MSVC keine verwertbaren Linker-Pfade liefert (LNK2019).
+      # Die zusätzliche target_link_libraries-Zeile stellt sicher, dass
+      # libp11.lib immer in den Link-Befehl für nextcloudsync.dll einfliesst.
       # ─────────────────────────────────────────────
       - name: Apply Patches
         shell: pwsh
@@ -287,25 +295,34 @@ jobs:
           Set-Location C:\build\nextcloud-src
           git apply $env:GITHUB_WORKSPACE\patches\001-cmake-optional-type.patch
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
-          $syncCmake = "src\libsync\CMakeLists.txt"
-          (Get-Content $syncCmake) `
-            -replace 'PkgConfig::OPENSC-LIBP11', '' |
-            Set-Content $syncCmake
+
+          # pkg_check_modules fuer OPENSC-LIBP11 auf QUIET setzen (kein Fehler wenn nicht gefunden)
           (Get-Content "CMakeLists.txt") `
             -replace 'pkg_check_modules\(OPENSC-LIBP11 libp11 REQUIRED IMPORTED_TARGET\)',
                      'pkg_check_modules(OPENSC-LIBP11 libp11 QUIET IMPORTED_TARGET)' |
             Set-Content "CMakeLists.txt"
 
+          # PkgConfig::OPENSC-LIBP11 aus target_link_libraries entfernen
+          # (wuerde unter MSVC einen leeren/ungültigen Linker-Eintrag erzeugen)
+          $syncCmake = "src\libsync\CMakeLists.txt"
+          (Get-Content $syncCmake) `
+            -replace 'PkgConfig::OPENSC-LIBP11', '' |
+            Set-Content $syncCmake
+
+          # libp11.lib direkt als absoluten Pfad in nextcloudsync einlinken.
+          # Wir suchen die Zeile mit "target_link_libraries(nextcloudsync" und
+          # fuegen danach einen separaten target_link_libraries-Aufruf ein.
+          $content = Get-Content $syncCmake -Raw
+          $inject = "`r`n# libp11 direkt einbinden (MSVC/ARM64 – pkg-config liefert keine verwertbaren Pfade)`r`nif(WIN32)`r`n  target_link_libraries(nextcloudsync PRIVATE `"C:/build/libp11-arm64/libp11.lib`")`r`nendif()`r`n"
+          # Einfuegen direkt nach dem letzten target_link_libraries-Block fuer nextcloudsync
+          $content = $content -replace '(target_link_libraries\(nextcloudsync[^)]*\))', "`$1$inject"
+          Set-Content $syncCmake $content
+
+          Write-Host "libp11 Injection abgeschlossen:"
+          Select-String -Path $syncCmake -Pattern 'libp11'
+
       # ─────────────────────────────────────────────
       # 17. CMake konfigurieren
-      #
-      # libp11 wird NICHT über pkg-config eingebunden (funktioniert nicht
-      # zuverlässig mit MSVC/Ninja), sondern direkt als CMake-Variablen:
-      #   LIBP11_INCLUDE_DIR  → Header-Verzeichnis
-      #   LIBP11_LIBRARIES    → absoluter Pfad zur .lib
-      #
-      # Damit findet target_link_libraries() in libsync/CMakeLists.txt
-      # die Symbole (PKCS11_CTX_load, PKCS11_open_session, …) zuverlässig.
       # ─────────────────────────────────────────────
       - name: Configure
         shell: pwsh
@@ -318,7 +335,6 @@ jobs:
 
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
 
-          # Alle manuell gebauten Pakete als Suchpfade zusammenfassen
           $prefixPath = "C:/build/deps-arm64/ecm;C:/build/deps-arm64/qtkeychain;C:/build/deps-arm64/kf6archive;C:/build/deps-arm64/kdsingleapp"
 
           $webEngineArgs = @()
@@ -347,8 +363,6 @@ jobs:
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
             "-DZLIB_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\z.lib" `
             "-DZLIB_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
-            "-DLIBP11_INCLUDE_DIR=C:\build\libp11-arm64" `
-            "-DLIBP11_LIBRARIES=C:\build\libp11-arm64\libp11.lib" `
             @webEngineArgs
 
       # ─────────────────────────────────────────────
