@@ -261,7 +261,7 @@ $iconBlock
           Key="Software\Microsoft\Windows\CurrentVersion\Run"
           Name="Nextcloud"
           Type="string"
-          Value="[INSTALLDIR]nextcloud.exe"
+          Value="&quot;[INSTALLDIR]nextcloud.exe&quot; --background"
           KeyPath="yes" />
       </Component>
 

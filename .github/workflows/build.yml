@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v1
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v2
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -370,6 +370,8 @@ jobs:
             ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
           Get-ChildItem C:\build\deps-arm64\kdsingleapp\bin\*.dll -ErrorAction SilentlyContinue | `
             ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
+          Get-ChildItem C:\build\deps-arm64\kf6guiaddons\bin\*.dll -ErrorAction SilentlyContinue | `
+            ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
 
           # windeployqt mit QML-Verzeichnis → deployed Qt Quick/QML-Module für Tray-Popup
           & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
@@ -414,10 +416,54 @@ jobs:
           Write-Host "DLLs in $BinDir"
           Get-ChildItem "$BinDir\*.dll" | Sort-Object Name | Select-Object Name
 
-      # ── MSI bauen + Release (immer) ─────────────────────────────────────────
-      - name: Build MSI Installer
+      # ── Offizielles Nextcloud MSI bauen (immer) ────────────────────────────
+      - name: Build official Nextcloud MSI
         shell: pwsh
-        run: .\scripts\generate-msi.ps1
+        run: |
+          $msiDir = "C:\build\nextcloud-arm64\msi"
+          if (-not (Test-Path $msiDir)) {
+            throw "MSI-Verzeichnis nicht gefunden – cmake --install hat es nicht erzeugt: $msiDir"
+          }
+
+          # WIX-Umgebungsvariable setzen (make-msi.bat braucht sie)
+          $wixBase = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $wixBase) { throw "WiX Toolset nicht gefunden" }
+          $env:WIX = $wixBase
+          Write-Host "WIX=$wixBase"
+
+          # make-msi.bat: cmake setzt ARM64 nicht automatisch (SIZEOF_VOID_P = 8 → x64)
+          $batFile = "$msiDir\make-msi.bat"
+          (Get-Content $batFile -Raw) -replace 'set BuildArch=x64', 'set BuildArch=arm64' |
+            Set-Content $batFile -Encoding ASCII
+          Write-Host "make-msi.bat: BuildArch → arm64"
+
+          # Platform.wxi: arm64-Fall ergänzen (Datei kennt nur x64/x86)
+          $platformWxi = "$msiDir\Platform.wxi"
+          $platform = Get-Content $platformWxi -Raw
+          if ($platform -notmatch 'arm64') {
+            $platform = $platform -replace '(<\?if \$\(var\.Platform\) = x64 \?>)',
+              "<?if `$(var.Platform) = arm64 ?>`n<?define PlatformBitness = `"(ARM64)`" ?>`n<?define PlatformWin64 = `"yes`" ?>`n<?define PlatformProgramFilesFolder = `"ProgramFiles64Folder`" ?>`n<?elseif `$(var.Platform) = x64 ?>"
+            Set-Content $platformWxi $platform -Encoding UTF8
+            Write-Host "Platform.wxi: arm64 ergänzt"
+          }
+
+          # MSI bauen
+          Set-Location $msiDir
+          $binDir = "C:\build\nextcloud-arm64\bin"
+          Write-Host "Starte make-msi.bat mit HarvestAppDir=$binDir"
+          & cmd /c "make-msi.bat `"$binDir`"" 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "make-msi.bat fehlgeschlagen (Exit $LASTEXITCODE)" }
+
+          # MSI in Workspace kopieren
+          $version = $env:VERSION
+          $msi = Get-ChildItem $msiDir -Filter "*.msi" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $msi) { throw "Kein MSI gefunden in $msiDir" }
+          $dest = "$env:GITHUB_WORKSPACE\Nextcloud-${version}-arm64.msi"
+          Copy-Item $msi.FullName $dest -Force
+          $mb = [math]::Round((Get-Item $dest).Length / 1MB, 1)
+          Write-Host "MSI: $dest ($mb MB)"
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2
