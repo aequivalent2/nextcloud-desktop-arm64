@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v3
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v4
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -101,7 +101,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\Qt
-          key: qt-6.11.1-arm64-msvc2022-webengine-v2
+          key: qt-6.11.1-arm64-msvc2022-webengine-shadertools-v3
 
       - name: Install Qt ARM64
         if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-qt.outputs.cache-hit != 'true'
@@ -109,7 +109,7 @@ jobs:
         run: |
           python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
             --outputdir C:\Qt `
-            --modules qt5compat qtpositioning qtwebsockets qtwebengine
+            --modules qt5compat qtpositioning qtwebsockets qtwebengine qtshadertools
           if ($LASTEXITCODE -ne 0) {
             # Fallback ohne WebEngine falls aqt-Spiegel unvollständig ist
             Write-Warning "Vollständige Qt-Installation fehlgeschlagen, versuche ohne WebEngine..."
@@ -372,8 +372,11 @@ jobs:
           cmake --install C:\build\nextcloud-build
 
           # Deps: qtkeychain, KF6Archive, KDSingleApplication
+          # qt6keychain in Qt/bin (für windeployqt-Analyse) UND BinDir (für Laufzeit)
           Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
             "$env:QT_ARM64_DIR\bin\" -Force
+          Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
+            "$BinDir\" -Force
           Get-ChildItem C:\build\deps-arm64\kf6archive\bin\*.dll -ErrorAction SilentlyContinue | `
             ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
           Get-ChildItem C:\build\deps-arm64\kdsingleapp\bin\*.dll -ErrorAction SilentlyContinue | `
