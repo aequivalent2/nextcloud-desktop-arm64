@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v7
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v8
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -316,6 +316,14 @@ jobs:
           Write-Host "libp11 Injection abgeschlossen:"
           Select-String -Path $syncCmake -Pattern 'libp11'
 
+          # Patch admin/win/CMakeLists.txt: NCMsiHelper (tools) nicht bauen wenn BUILD_WIN_MSI=ON
+          # WiX v3 hat keine ARM64 SDK-Libs → NCMsiHelper64.dll kann nicht für ARM64 gelinkt werden
+          $adminWinCmake = "C:\build\nextcloud-src\admin\win\CMakeLists.txt"
+          (Get-Content $adminWinCmake -Raw) `
+            -replace 'if\(BUILD_WIN_MSI OR BUILD_WIN_TOOLS\)', 'if(BUILD_WIN_TOOLS)' |
+            Set-Content $adminWinCmake
+          Write-Host "admin/win/CMakeLists.txt gepatcht: tools nur noch bei BUILD_WIN_TOOLS=ON"
+
       - name: Configure
         if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
@@ -354,7 +362,6 @@ jobs:
             "-DCMAKE_PREFIX_PATH=$prefixPath" `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
             -DBUILD_WIN_MSI=ON `
-            -DBUILD_WIN_TOOLS=OFF `
             "-DICOTOOL_EXECUTABLE=C:\tools\icotool-shim\icotool.bat" `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
