@@ -351,6 +351,7 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=arm64-windows `
             "-DCMAKE_PREFIX_PATH=$prefixPath" `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
+            -DBUILD_WIN_MSI=ON `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
