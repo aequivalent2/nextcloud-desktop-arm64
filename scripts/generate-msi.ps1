@@ -30,25 +30,95 @@ $candle = Join-Path $wixBin "candle.exe"
 $light  = Join-Path $wixBin "light.exe"
 Write-Host "WiX gefunden: $wixBin"
 
-# --- Icon ermitteln (mehrere Fallbacks) ---
+# --- Icon ermitteln oder aus PNGs generieren ---
 $iconDest = "$OutDir\nextcloud.ico"
-$iconSources = @(
+
+function New-IcoFromPngs {
+    param([string[]]$PngFiles, [string]$OutputPath)
+    Add-Type -AssemblyName System.Drawing
+    $images = @()
+    foreach ($f in $PngFiles) {
+        try {
+            $img = [System.Drawing.Image]::FromFile($f)
+            $images += $img
+            Write-Host "  ICO layer: $([System.IO.Path]::GetFileName($f)) ($($img.Width)x$($img.Height))"
+        } catch { Write-Warning "  Fehler beim Laden: $f" }
+    }
+    if ($images.Count -eq 0) { return $false }
+
+    $imageData = @()
+    foreach ($img in $images) {
+        $ms2 = New-Object System.IO.MemoryStream
+        $img.Save($ms2, [System.Drawing.Imaging.ImageFormat]::Png)
+        $imageData += ,$ms2.ToArray()
+        $ms2.Dispose()
+    }
+
+    $ms = New-Object System.IO.MemoryStream
+    $bw = New-Object System.IO.BinaryWriter($ms)
+    $bw.Write([uint16]0)
+    $bw.Write([uint16]1)
+    $bw.Write([uint16]$images.Count)
+
+    $offset = [uint32](6 + $images.Count * 16)
+    for ($i = 0; $i -lt $images.Count; $i++) {
+        $w = if ($images[$i].Width  -ge 256) { [byte]0 } else { [byte]$images[$i].Width }
+        $h = if ($images[$i].Height -ge 256) { [byte]0 } else { [byte]$images[$i].Height }
+        $bw.Write($w); $bw.Write($h)
+        $bw.Write([byte]0); $bw.Write([byte]0)
+        $bw.Write([uint16]1); $bw.Write([uint16]32)
+        $bw.Write([uint32]$imageData[$i].Length)
+        $bw.Write($offset)
+        $offset += [uint32]$imageData[$i].Length
+    }
+    foreach ($d in $imageData) { $bw.Write($d) }
+
+    [System.IO.File]::WriteAllBytes($OutputPath, $ms.ToArray())
+    foreach ($img in $images) { $img.Dispose() }
+    $bw.Dispose(); $ms.Dispose()
+    return $true
+}
+
+$iconFound = $false
+
+# 1. Fertiges .ico suchen (falls CMake es doch gebaut hat)
+foreach ($src in @(
     "C:\build\nextcloud-src\src\gui\nextcloud.ico",
     "C:\build\nextcloud-src\theme\nextcloud.ico",
-    (Get-ChildItem "C:\build\nextcloud-src" -Filter "nextcloud.ico" -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty FullName),
+    (Get-ChildItem "C:\build\nextcloud-src" -Filter "nextcloud.ico" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName),
     "$BinDir\nextcloud.ico"
-)
-$iconFound = $false
-foreach ($src in $iconSources) {
+)) {
     if ($src -and (Test-Path $src)) {
         Copy-Item $src $iconDest -Force
-        Write-Host "Icon gefunden: $src"
+        Write-Host "Icon (.ico) gefunden: $src"
         $iconFound = $true
         break
     }
 }
-if (-not $iconFound) { Write-Warning "Kein .ico gefunden – MSI-Icon wird weggelassen" }
+
+# 2. Aus PNGs generieren (rsvg-convert legt diese während des CMake-Builds an)
+if (-not $iconFound) {
+    Write-Host "Kein .ico gefunden – generiere aus PNGs..."
+    $pngDirs = @(
+        "C:\build\nextcloud-src\theme\colored",
+        "C:\build\nextcloud-build\src\gui",
+        "C:\build\nextcloud-build"
+    )
+    $pngFiles = @()
+    foreach ($dir in $pngDirs) {
+        foreach ($size in @(256, 128, 64, 48, 32, 16)) {
+            $candidate = "$dir\${size}-Nextcloud-icon.png"
+            if (Test-Path $candidate) { $pngFiles += $candidate }
+        }
+        if ($pngFiles.Count -ge 2) { break }
+    }
+    if ($pngFiles.Count -gt 0) {
+        $iconFound = New-IcoFromPngs -PngFiles $pngFiles -OutputPath $iconDest
+        if ($iconFound) { Write-Host "Icon aus $($pngFiles.Count) PNGs generiert: $iconDest" }
+    }
+}
+
+if (-not $iconFound) { Write-Warning "Kein Icon gefunden – MSI-Icon wird weggelassen" }
 
 if ($iconFound -and -not (Test-Path "$BinDir\nextcloud.ico")) {
     Copy-Item $iconDest "$BinDir\nextcloud.ico" -Force
