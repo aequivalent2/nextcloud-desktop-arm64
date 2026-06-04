@@ -75,20 +75,54 @@ jobs:
           '@
           Set-Content "${{ github.workspace }}\craft.ps1" $script -Encoding UTF8
 
-      # ── Inkscape (für Icon-Generierung) ────────────────────────────────────
+      # ── Craft initialisieren: ersten Aufruf nutzen um Craft zu klonen ────────
+      # Schlägt mit ARM64-Fehler fehl, aber Craft wird dabei geklont → danach patchbar
+      - name: Craft – initialize (clone craft)
+        if: steps.cache-craft.outputs.cache-hit != 'true'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          & "${{ github.workspace }}\craft.ps1" craft
+
+      # ── CraftSetupHelper.py für ARM64 patchen ─────────────────────────────
+      # Craft kennt Architecture.arm64 nicht in seiner MSVC-Architektur-Map
+      - name: Patch Craft for ARM64 Windows
+        if: steps.cache-craft.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $helperPath = "${{ github.workspace }}\${{ env.CRAFT_TARGET }}\craft\bin\CraftSetupHelper.py"
+          if (-not (Test-Path $helperPath)) {
+            throw "CraftSetupHelper.py nicht gefunden – Craft wurde nicht korrekt geklont"
+          }
+          $content = Get-Content $helperPath -Raw -Encoding UTF8
+          if ($content -match 'Architecture\.arm64') {
+            Write-Host "ARM64 bereits vorhanden, kein Patch nötig"
+          } else {
+            # ARM64 zur MSVC-Architektur-Map hinzufügen
+            $content = $content -replace '(Architecture\.x64\s*:\s*"amd64")', '$1, Architecture.arm64: "arm64"'
+            Set-Content $helperPath $content -Encoding UTF8
+            Write-Host "ARM64 patch erfolgreich angewendet auf: $helperPath"
+            # Patch verifizieren
+            Select-String -Path $helperPath -Pattern 'arm64'
+          }
+
+      # ── Inkscape NACH Craft-Init (vermeidet Python-PATH-Konflikt) ──────────
       - name: Install Inkscape
         if: steps.cache-craft.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           choco install inkscape -y --no-progress
+          # Inkscape-Python aus PATH entfernen damit GitHub-Actions-Python Vorrang hat
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*Inkscape*' }) -join ';'
           $inkPath = Get-ChildItem "C:\Program Files\Inkscape*" -Directory -ErrorAction SilentlyContinue |
             Select-Object -First 1 -ExpandProperty FullName
           if ($inkPath) {
+            # Nur Inkscape-bin ohne Python in PATH eintragen
             "$inkPath\bin" | Add-Content $env:GITHUB_PATH
             Write-Host "Inkscape: $inkPath"
           }
 
-      # ── Craft initialisieren + Abhängigkeiten installieren ─────────────────
+      # ── Craft – Blueprints + Dependencies installieren ─────────────────────
       - name: Craft – setup and install dependencies
         if: steps.cache-craft.outputs.cache-hit != 'true'
         shell: pwsh
