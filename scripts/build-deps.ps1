@@ -76,6 +76,20 @@ cmake C:\build\karchive-src `
 cmake --build . --parallel 4
 cmake --install .
 
+# ── KF6GuiAddons ────────────────────────────────────────────────
+git clone https://invent.kde.org/frameworks/kguiaddons.git C:\build\kguiaddons-src --depth 1
+New-Item -ItemType Directory -Force C:\build\kguiaddons-build | Out-Null
+Set-Location C:\build\kguiaddons-build
+cmake C:\build\kguiaddons-src `
+  -G Ninja `
+  "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_INSTALL_PREFIX=C:\build\deps-arm64\kf6guiaddons `
+  -DBUILD_TESTING=OFF `
+  "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake"
+cmake --build . --parallel 4
+cmake --install .
+
 # ── KDSingleApplication ─────────────────────────────────────────
 git clone https://github.com/KDAB/KDSingleApplication.git C:\build\kdsingleapp-src --depth 1
 New-Item -ItemType Directory -Force C:\build\kdsingleapp-build | Out-Null

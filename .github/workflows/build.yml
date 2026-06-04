@@ -101,7 +101,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\Qt
-          key: qt-6.11.1-arm64-msvc2022-qt5compat-positioning-websockets-v1
+          key: qt-6.11.1-arm64-msvc2022-webengine-v2
 
       - name: Install Qt ARM64
         if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-qt.outputs.cache-hit != 'true'
@@ -109,19 +109,13 @@ jobs:
         run: |
           python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
             --outputdir C:\Qt `
-            --modules qt5compat qtpositioning qtwebsockets
-
-      - name: Install Qt ARM64 - WebEngine (best effort)
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-qt.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $modules = python -m aqt list-qt windows_arm64 desktop --modules 6.11.1 win64_msvc2022_arm64
-          if ($modules -match "qtwebengine") {
-            Write-Host "qtwebengine verfuegbar - wird installiert"
+            --modules qt5compat qtpositioning qtwebsockets qtwebengine
+          if ($LASTEXITCODE -ne 0) {
+            # Fallback ohne WebEngine falls aqt-Spiegel unvollständig ist
+            Write-Warning "Vollständige Qt-Installation fehlgeschlagen, versuche ohne WebEngine..."
             python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
-              --outputdir C:\Qt --modules qtwebengine
-          } else {
-            Write-Warning "qtwebengine nicht verfuegbar - Build ohne WebEngine"
+              --outputdir C:\Qt `
+              --modules qt5compat qtpositioning qtwebsockets
             echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
           }
 
@@ -172,17 +166,28 @@ jobs:
           Write-Host "WiX installiert: $wixBin"
           & "$wixBin\candle.exe" -? 2>&1 | Select-Object -First 1
 
-      - name: Install SVG converter
+      - name: Install SVG converter and IcoTool
         if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
+          # rsvg-convert: SVG → PNG (für State-Icons)
           choco install rsvg-convert -y --no-progress
           $found = Get-Command rsvg-convert -ErrorAction SilentlyContinue
           if (-not $found) {
             $chocoBin = "C:\ProgramData\chocolatey\bin"
-            if (Test-Path $chocoBin) {
-              $chocoBin | Add-Content $env:GITHUB_PATH
+            if (Test-Path $chocoBin) { $chocoBin | Add-Content $env:GITHUB_PATH }
+          }
+          # icoutils (icotool): PNG → ICO (für App-Icon in nextcloud.exe)
+          choco install icoutils -y --no-progress
+          $icotool = Get-Command icotool -ErrorAction SilentlyContinue
+          if ($icotool) {
+            Write-Host "icotool gefunden: $($icotool.Source)"
+          } else {
+            # Chocolatey-Fallback-Pfade
+            @("C:\ProgramData\chocolatey\bin", "C:\ProgramData\chocolatey\lib\icoutils\tools") | ForEach-Object {
+              if (Test-Path $_) { $_ | Add-Content $env:GITHUB_PATH }
             }
+            Write-Warning "icotool nicht direkt im PATH – Fallback-Pfade hinzugefügt"
           }
 
       # ── vcpkg-Cache ─────────────────────────────────────────────────────────
@@ -228,13 +233,6 @@ jobs:
         shell: pwsh
         run: .\scripts\build-openssl.ps1
 
-      - name: Save OpenSSL Cache
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-openssl.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: C:\build\openssl-arm64
-          key: openssl-3.3-arm64-v5
-
       - name: Cache libp11
         if: steps.cache-nc.outputs.cache-hit != 'true'
         id: cache-libp11
@@ -248,32 +246,18 @@ jobs:
         shell: pwsh
         run: .\scripts\build-libp11.ps1
 
-      - name: Save libp11 Cache
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-libp11.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-v6
-
       - name: Cache Dependencies
         if: steps.cache-nc.outputs.cache-hit != 'true'
         id: cache-deps
         uses: actions/cache@v4
         with:
           path: C:\build\deps-arm64
-          key: deps-arm64-qt6.11.1-v6
+          key: deps-arm64-qt6.11.1-v7
 
       - name: Build Dependencies
         if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-deps.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-deps.ps1
-
-      - name: Save Dependencies Cache
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-deps.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: C:\build\deps-arm64
-          key: deps-arm64-qt6.11.1-v6
 
       # ── Nextcloud bauen (nur bei Cache-Miss) ────────────────────────────────
       - name: Clone Nextcloud
@@ -323,16 +307,24 @@ jobs:
           $env:PATH = ($env:PATH -split ';' |
             Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
           New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
-          $prefixPath = "C:/build/deps-arm64/ecm;C:/build/deps-arm64/qtkeychain;C:/build/deps-arm64/kf6archive;C:/build/deps-arm64/kdsingleapp"
+          $prefixPath = "C:/build/deps-arm64/ecm;C:/build/deps-arm64/qtkeychain;C:/build/deps-arm64/kf6archive;C:/build/deps-arm64/kf6guiaddons;C:/build/deps-arm64/kdsingleapp"
           $webEngineArgs = @()
           if ($env:NO_WEBENGINE -eq "1") {
             Write-Warning "Konfiguriere ohne WebEngine"
             $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
           } else {
-            $webEngineArgs = @(
-              "-DQt6WebEngineCore_DIR=$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineCore",
-              "-DQt6WebEngineWidgets_DIR=$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineWidgets"
-            )
+            $weCore = "$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineCore"
+            if (Test-Path $weCore) {
+              Write-Host "WebEngine gefunden – wird aktiviert"
+              $webEngineArgs = @(
+                "-DBUILD_WITH_WEBENGINE=ON",
+                "-DQt6WebEngineCore_DIR=$weCore",
+                "-DQt6WebEngineWidgets_DIR=$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineWidgets"
+              )
+            } else {
+              Write-Warning "WebEngine-Verzeichnis nicht gefunden – Build ohne WebEngine"
+              $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
+            }
           }
           cmake C:\build\nextcloud-src `
             -B C:\build\nextcloud-build `
