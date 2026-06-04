@@ -496,6 +496,59 @@ jobs:
             Write-Host "Platform.wxi: arm64 ergänzt"
           }
 
+          # Nextcloud.ico generieren (Nextcloud.wxs braucht es im HarvestAppDir)
+          # Verwendet .NET System.Drawing – kein externes Tool nötig
+          $icoTarget = "C:\build\nextcloud-arm64\bin\Nextcloud.ico"
+          if (-not (Test-Path $icoTarget)) {
+            Add-Type -AssemblyName System.Drawing
+            $pngSizes  = @(256, 128, 64, 48, 32, 16)
+            $pngDirs   = @(
+              "C:\build\nextcloud-src\theme\colored",
+              "C:\build\nextcloud-build\src\gui",
+              "C:\build\nextcloud-build"
+            )
+            $pngFiles = @()
+            foreach ($dir in $pngDirs) {
+              foreach ($sz in $pngSizes) {
+                $f = "$dir\${sz}-Nextcloud-icon.png"
+                if (Test-Path $f) { $pngFiles += $f }
+              }
+              if ($pngFiles.Count -ge 2) { break }
+            }
+            if ($pngFiles.Count -gt 0) {
+              $images = @(); $imageData = @()
+              foreach ($f in $pngFiles) {
+                try { $images += [System.Drawing.Image]::FromFile($f) } catch {}
+              }
+              foreach ($img in $images) {
+                $ms2 = New-Object System.IO.MemoryStream
+                $img.Save($ms2, [System.Drawing.Imaging.ImageFormat]::Png)
+                $imageData += ,$ms2.ToArray(); $ms2.Dispose()
+              }
+              $ms  = New-Object System.IO.MemoryStream
+              $bw  = New-Object System.IO.BinaryWriter($ms)
+              $bw.Write([uint16]0); $bw.Write([uint16]1); $bw.Write([uint16]$images.Count)
+              $off = [uint32](6 + $images.Count * 16)
+              for ($i = 0; $i -lt $images.Count; $i++) {
+                $w = if ($images[$i].Width  -ge 256) { [byte]0 } else { [byte]$images[$i].Width }
+                $h = if ($images[$i].Height -ge 256) { [byte]0 } else { [byte]$images[$i].Height }
+                $bw.Write($w); $bw.Write($h); $bw.Write([byte]0); $bw.Write([byte]0)
+                $bw.Write([uint16]1); $bw.Write([uint16]32)
+                $bw.Write([uint32]$imageData[$i].Length); $bw.Write($off)
+                $off += [uint32]$imageData[$i].Length
+              }
+              foreach ($d in $imageData) { $bw.Write($d) }
+              [System.IO.File]::WriteAllBytes($icoTarget, $ms.ToArray())
+              foreach ($img in $images) { $img.Dispose() }
+              $bw.Dispose(); $ms.Dispose()
+              Write-Host "Nextcloud.ico generiert aus $($pngFiles.Count) PNGs: $icoTarget"
+            } else {
+              Write-Warning "Keine PNGs gefunden – Nextcloud.ico konnte nicht generiert werden"
+            }
+          } else {
+            Write-Host "Nextcloud.ico bereits vorhanden"
+          }
+
           # MSI bauen
           Set-Location $msiDir
           $binDir = "C:\build\nextcloud-arm64\bin"
