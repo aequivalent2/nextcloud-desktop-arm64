@@ -83,6 +83,19 @@ Write-Host "Harveste $BinDir ..."
     -out $filesWxs
 if ($LASTEXITCODE -ne 0) { throw "heat.exe fehlgeschlagen (Exit $LASTEXITCODE)" }
 
+# Post-processing: Directory-keyed Components brauchen explizite GUIDs (Guid="*" wird von light abgelehnt)
+[xml]$xml = [System.IO.File]::ReadAllText($filesWxs)
+$nsMgr = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+$nsMgr.AddNamespace("wix", "http://schemas.microsoft.com/wix/2006/wi")
+$dirComponents = $xml.SelectNodes("//wix:Component[wix:CreateFolder]", $nsMgr)
+foreach ($node in $dirComponents) {
+    if ($node.GetAttribute("Guid") -eq "*") {
+        $node.SetAttribute("Guid", "{$([System.Guid]::NewGuid().ToString().ToUpper())}")
+    }
+}
+$xml.Save($filesWxs)
+Write-Host "Directory-keyed Components gefixt: $($dirComponents.Count)"
+
 # --- Product.wxs generieren ---
 $productWxs = "$OutDir\Product.wxs"
 
@@ -212,21 +225,11 @@ $msiOut = "$OutDir\Nextcloud-${version}-arm64.msi"
 Write-Host "Linke zu MSI: $msiOut"
 & $light `
     -ext WixUIExtension `
-    -cultures:de-de `
-    -loc "$wixBin\..\lib\WixUI_de-de.wxl" `
+    -cultures:en-us `
     -out $msiOut `
     "$OutDir\Product.wixobj" `
     "$OutDir\files.wixobj"
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Erster light-Aufruf (de-de) fehlgeschlagen, versuche en-us..."
-    & $light `
-        -ext WixUIExtension `
-        -cultures:en-us `
-        -out $msiOut `
-        "$OutDir\Product.wixobj" `
-        "$OutDir\files.wixobj"
-    if ($LASTEXITCODE -ne 0) { throw "light.exe fehlgeschlagen (Exit $LASTEXITCODE)" }
-}
+if ($LASTEXITCODE -ne 0) { throw "light.exe fehlgeschlagen (Exit $LASTEXITCODE)" }
 
 $mb = [math]::Round((Get-Item $msiOut).Length / 1MB, 1)
 Write-Host "MSI erstellt: $msiOut ($mb MB)"

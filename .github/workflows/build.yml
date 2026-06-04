@@ -27,18 +27,32 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_ENV
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
+      # ── Nextcloud-Binary-Cache ──────────────────────────────────────────────
+      # Gecacht: fertig gebautes + deployed C:\build\nextcloud-arm64 (mit allen DLLs).
+      # Cache-Hit → Clone/Patch/Configure/Build/Deploy komplett überspringen.
+      - name: Cache Nextcloud binary
+        id: cache-nc
+        uses: actions/cache@v4
+        with:
+          path: C:\build\nextcloud-arm64
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v1
+
+      # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
 
       - name: Setup Perl
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           "C:\Strawberry\perl\bin" | Add-Content $env:GITHUB_PATH
           perl --version
 
       - name: Verify MSVC compiler
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $cl = (Get-Command cl.exe -ErrorAction SilentlyContinue)?.Source
@@ -49,6 +63,7 @@ jobs:
           echo "CXX=cl" >> $env:GITHUB_ENV
 
       - name: Setup Windows SDK paths
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $sdkVer = "10.0.26100.0"
@@ -69,15 +84,27 @@ jobs:
           Write-Host "MSVC Version: $vsVer"
 
       - name: Setup Python
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install aqt
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: python -m pip install aqtinstall==3.3.*
 
+      # ── Qt-Cache ────────────────────────────────────────────────────────────
+      - name: Cache Qt ARM64
+        if: steps.cache-nc.outputs.cache-hit != 'true'
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: C:\Qt
+          key: qt-6.11.1-arm64-msvc2022-qt5compat-positioning-websockets-v1
+
       - name: Install Qt ARM64
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
@@ -85,6 +112,7 @@ jobs:
             --modules qt5compat qtpositioning qtwebsockets
 
       - name: Install Qt ARM64 - WebEngine (best effort)
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $modules = python -m aqt list-qt windows_arm64 desktop --modules 6.11.1 win64_msvc2022_arm64
@@ -98,6 +126,7 @@ jobs:
           }
 
       - name: Detect Qt ARM64 path
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $QtBase = "C:\Qt\6.11.1"
@@ -112,9 +141,11 @@ jobs:
           "$QtDir\bin" | Add-Content $env:GITHUB_PATH
 
       - name: Install CMake and Ninja
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         uses: lukka/get-cmake@latest
 
       - name: Install pkg-config
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           choco install pkgconfiglite -y --no-progress
@@ -128,6 +159,7 @@ jobs:
             }
           }
 
+      # ── WiX (immer, für MSI-Build) ──────────────────────────────────────────
       - name: Install WiX Toolset
         shell: pwsh
         run: |
@@ -141,6 +173,7 @@ jobs:
           & "$wixBin\candle.exe" -? 2>&1 | Select-Object -First 1
 
       - name: Install SVG converter
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           choco install rsvg-convert -y --no-progress
@@ -152,21 +185,38 @@ jobs:
             }
           }
 
+      # ── vcpkg-Cache ─────────────────────────────────────────────────────────
+      - name: Cache vcpkg packages
+        if: steps.cache-nc.outputs.cache-hit != 'true'
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\build\vcpkg\installed
+          key: vcpkg-arm64-sqlite3-zlib-bzip2-liblzma-zstd-v1
+
       - name: Bootstrap vcpkg
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           git clone https://github.com/microsoft/vcpkg.git C:\build\vcpkg --depth 1
           C:\build\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          C:\build\vcpkg\vcpkg.exe install `
-            sqlite3:arm64-windows `
-            zlib:arm64-windows `
-            bzip2:arm64-windows `
-            liblzma:arm64-windows `
-            zstd:arm64-windows `
-            --no-print-usage
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
+          if ("${{ steps.cache-vcpkg.outputs.cache-hit }}" -ne "true") {
+            Write-Host "Installiere vcpkg-Pakete..."
+            C:\build\vcpkg\vcpkg.exe install `
+              sqlite3:arm64-windows `
+              zlib:arm64-windows `
+              bzip2:arm64-windows `
+              liblzma:arm64-windows `
+              zstd:arm64-windows `
+              --no-print-usage
+          } else {
+            Write-Host "vcpkg-Pakete aus Cache wiederhergestellt"
+          }
 
+      # ── OpenSSL, libp11, Deps (bestehende Caches, nur bei NC-Miss) ─────────
       - name: Cache OpenSSL
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         id: cache-openssl
         uses: actions/cache@v4
         with:
@@ -174,18 +224,19 @@ jobs:
           key: openssl-3.3-arm64-v5
 
       - name: Build OpenSSL
-        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-openssl.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-openssl.ps1
 
       - name: Save OpenSSL Cache
-        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-openssl.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: C:\build\openssl-arm64
           key: openssl-3.3-arm64-v5
 
       - name: Cache libp11
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         id: cache-libp11
         uses: actions/cache@v4
         with:
@@ -193,18 +244,19 @@ jobs:
           key: libp11-0.4.12-arm64-v6
 
       - name: Build libp11
-        if: steps.cache-libp11.outputs.cache-hit != 'true'
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-libp11.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-libp11.ps1
 
       - name: Save libp11 Cache
-        if: steps.cache-libp11.outputs.cache-hit != 'true'
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-libp11.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: C:\build\libp11-arm64
           key: libp11-0.4.12-arm64-v6
 
       - name: Cache Dependencies
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         id: cache-deps
         uses: actions/cache@v4
         with:
@@ -212,18 +264,20 @@ jobs:
           key: deps-arm64-qt6.11.1-v6
 
       - name: Build Dependencies
-        if: steps.cache-deps.outputs.cache-hit != 'true'
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-deps.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build-deps.ps1
 
       - name: Save Dependencies Cache
-        if: steps.cache-deps.outputs.cache-hit != 'true'
+        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: C:\build\deps-arm64
           key: deps-arm64-qt6.11.1-v6
 
+      # ── Nextcloud bauen (nur bei Cache-Miss) ────────────────────────────────
       - name: Clone Nextcloud
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $version = $env:VERSION
@@ -236,6 +290,7 @@ jobs:
             C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
       - name: Apply Patches
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Set-Location C:\build\nextcloud-src
@@ -261,6 +316,7 @@ jobs:
           Select-String -Path $syncCmake -Pattern 'libp11'
 
       - name: Configure
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $QtToolchain = "$env:QT_ARM64_DIR\lib\cmake\Qt6\qt.toolchain.cmake"
@@ -296,6 +352,7 @@ jobs:
             @webEngineArgs
 
       - name: Build
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $env:PATH = ($env:PATH -split ';' |
@@ -303,6 +360,7 @@ jobs:
           cmake --build C:\build\nextcloud-build --parallel 4
 
       - name: Install and Deploy
+        if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $InstallDir = "C:\build\nextcloud-arm64"
@@ -347,6 +405,7 @@ jobs:
           Write-Host "DLLs in $BinDir"
           Get-ChildItem "$BinDir\*.dll" | Sort-Object Name | Select-Object Name
 
+      # ── MSI bauen + Release (immer) ─────────────────────────────────────────
       - name: Build MSI Installer
         shell: pwsh
         run: .\scripts\generate-msi.ps1
