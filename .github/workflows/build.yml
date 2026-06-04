@@ -177,17 +177,20 @@ jobs:
             $chocoBin = "C:\ProgramData\chocolatey\bin"
             if (Test-Path $chocoBin) { $chocoBin | Add-Content $env:GITHUB_PATH }
           }
-          # icoutils (icotool): PNG → ICO (für App-Icon in nextcloud.exe)
-          choco install icoutils -y --no-progress
-          $icotool = Get-Command icotool -ErrorAction SilentlyContinue
-          if ($icotool) {
-            Write-Host "icotool gefunden: $($icotool.Source)"
+          # ImageMagick: PNG → ICO (icoutils gibt es nicht auf Chocolatey; ImageMagick ist der ECMAddAppIcon-Fallback)
+          choco install imagemagick.tool -y --no-progress
+          $magick = Get-Command magick -ErrorAction SilentlyContinue
+          if ($magick) {
+            Write-Host "ImageMagick gefunden: $($magick.Source)"
           } else {
-            # Chocolatey-Fallback-Pfade
-            @("C:\ProgramData\chocolatey\bin", "C:\ProgramData\chocolatey\lib\icoutils\tools") | ForEach-Object {
-              if (Test-Path $_) { $_ | Add-Content $env:GITHUB_PATH }
+            $imDir = Get-ChildItem "C:\Program Files\ImageMagick*" -Directory -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+            if ($imDir) {
+              $imDir | Add-Content $env:GITHUB_PATH
+              Write-Host "ImageMagick Pfad hinzugefügt: $imDir"
+            } else {
+              Write-Warning "ImageMagick nicht gefunden – App-Icon wird möglicherweise nicht eingebettet"
             }
-            Write-Warning "icotool nicht direkt im PATH – Fallback-Pfade hinzugefügt"
           }
 
       # ── vcpkg-Cache ─────────────────────────────────────────────────────────

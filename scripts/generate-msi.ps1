@@ -20,11 +20,10 @@ $upgradeCode = "3FA7C2B1-8D4E-4A5F-BC69-1A2B3C4D5E6F"
 $wixBase = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
 if (-not $wixBase) {
-    # Chocolatey legt WiX manchmal hier ab
     $wixBase = Get-ChildItem "C:\ProgramData\chocolatey\lib\wixtoolset*" -Directory -ErrorAction SilentlyContinue |
         Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
 }
-if (-not $wixBase) { throw "WiX Toolset nicht gefunden! Bitte 'choco install wixtoolset' pruefen." }
+if (-not $wixBase) { throw "WiX Toolset nicht gefunden!" }
 $wixBin = Join-Path $wixBase "bin"
 $heat   = Join-Path $wixBin "heat.exe"
 $candle = Join-Path $wixBin "candle.exe"
@@ -49,11 +48,8 @@ foreach ($src in $iconSources) {
         break
     }
 }
-if (-not $iconFound) {
-    Write-Warning "Kein .ico gefunden – MSI-Icon wird weggelassen"
-}
+if (-not $iconFound) { Write-Warning "Kein .ico gefunden – MSI-Icon wird weggelassen" }
 
-# Stelle sicher, dass Icon auch im BinDir liegt (fuer Add/Remove Programs DisplayIcon)
 if ($iconFound -and -not (Test-Path "$BinDir\nextcloud.ico")) {
     Copy-Item $iconDest "$BinDir\nextcloud.ico" -Force
 }
@@ -69,13 +65,13 @@ if (Test-Path $licSrc) {
 }
 
 # --- heat: Verzeichnis ernten ---
+# KEIN -ke: keine leeren Verzeichnis-Komponenten (verursachen GUID-Probleme beim Deinstall)
 $filesWxs = "$OutDir\files.wxs"
 Write-Host "Harveste $BinDir ..."
 & $heat dir $BinDir `
     -cg MainFiles `
     -dr INSTALLDIR `
     -ag `
-    -ke `
     -sfrag `
     -srd `
     -sreg `
@@ -83,7 +79,7 @@ Write-Host "Harveste $BinDir ..."
     -out $filesWxs
 if ($LASTEXITCODE -ne 0) { throw "heat.exe fehlgeschlagen (Exit $LASTEXITCODE)" }
 
-# Post-processing: Directory-keyed Components brauchen explizite GUIDs (Guid="*" wird von light abgelehnt)
+# Post-processing: Directory-keyed Components brauchen explizite GUIDs
 [xml]$xml = [System.IO.File]::ReadAllText($filesWxs)
 $nsMgr = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
 $nsMgr.AddNamespace("wix", "http://schemas.microsoft.com/wix/2006/wi")
@@ -107,13 +103,14 @@ $iconBlock = if ($iconFound) { @"
 
 $productContent = @"
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <Product
     Id="*"
     Name="Nextcloud Desktop ARM64"
     Version="$msiVersion"
     Manufacturer="Nextcloud GmbH (inoffizieller ARM64-Build)"
-    Language="1031"
+    Language="1033"
     UpgradeCode="{$upgradeCode}">
 
     <Package
@@ -123,7 +120,7 @@ $productContent = @"
       Platform="arm64"
       Compressed="yes" />
 
-    <!-- Aeltere Versionen automatisch ersetzen -->
+    <!-- Aeltere Versionen automatisch ersetzen, neuere blockieren -->
     <MajorUpgrade
       DowngradeErrorMessage="Eine neuere Version von Nextcloud Desktop ist bereits installiert."
       Schedule="afterInstallInitialize" />
@@ -138,6 +135,7 @@ $iconBlock
       <ComponentRef Id="C_StartMenuShortcut" />
       <ComponentRef Id="C_DesktopShortcut" />
       <ComponentRef Id="C_Autostart" />
+      <ComponentRef Id="C_CleanupInstallDir" />
     </Feature>
 
     <!-- Verzeichnisstruktur -->
@@ -196,6 +194,18 @@ $iconBlock
           Value="[INSTALLDIR]nextcloud.exe"
           KeyPath="yes" />
       </Component>
+
+      <!-- Sauberer Cleanup: entfernt INSTALLDIR rekursiv beim Deinstallieren -->
+      <!-- util:RemoveFolderEx loescht auch Dateien die nach der Installation hinzugekommen sind -->
+      <Component Id="C_CleanupInstallDir" Guid="*">
+        <RegistryValue Root="HKCU"
+          Key="Software\Nextcloud\Desktop-ARM64"
+          Name="InstallDir"
+          Type="string"
+          Value="[INSTALLDIR]"
+          KeyPath="yes" />
+        <util:RemoveFolderEx On="uninstall" Property="INSTALLDIR" />
+      </Component>
     </DirectoryRef>
 
     <!-- UI: Minimal (nur Lizenz + Installieren) -->
@@ -214,6 +224,7 @@ Write-Host "Kompiliere WXS..."
 & $candle `
     -arch arm64 `
     -ext WixUIExtension `
+    -ext WixUtilExtension `
     "-dSourceDir=$BinDir" `
     $productWxs `
     $filesWxs `
@@ -225,6 +236,7 @@ $msiOut = "$OutDir\Nextcloud-${version}-arm64.msi"
 Write-Host "Linke zu MSI: $msiOut"
 & $light `
     -ext WixUIExtension `
+    -ext WixUtilExtension `
     -cultures:en-us `
     -out $msiOut `
     "$OutDir\Product.wixobj" `
@@ -234,6 +246,5 @@ if ($LASTEXITCODE -ne 0) { throw "light.exe fehlgeschlagen (Exit $LASTEXITCODE)"
 $mb = [math]::Round((Get-Item $msiOut).Length / 1MB, 1)
 Write-Host "MSI erstellt: $msiOut ($mb MB)"
 
-# In GitHub Workspace kopieren (fuer Artifact-Upload)
 Copy-Item $msiOut "$env:GITHUB_WORKSPACE\" -Force
 Write-Host "MSI kopiert nach: $env:GITHUB_WORKSPACE"
