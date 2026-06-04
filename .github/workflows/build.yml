@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v6
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v7
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -354,6 +354,7 @@ jobs:
             "-DCMAKE_PREFIX_PATH=$prefixPath" `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
             -DBUILD_WIN_MSI=ON `
+            -DBUILD_WIN_TOOLS=OFF `
             "-DICOTOOL_EXECUTABLE=C:\tools\icotool-shim\icotool.bat" `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
@@ -456,11 +457,27 @@ jobs:
           $env:WIX = $wixBase
           Write-Host "WIX=$wixBase"
 
-          # make-msi.bat: cmake setzt ARM64 nicht automatisch (SIZEOF_VOID_P = 8 → x64)
+          # make-msi.bat: x64 → arm64 + NCMsiHelper entfernen (kein ARM64-WiX-SDK)
           $batFile = "$msiDir\make-msi.bat"
-          (Get-Content $batFile -Raw) -replace 'set BuildArch=x64', 'set BuildArch=arm64' |
-            Set-Content $batFile -Encoding ASCII
-          Write-Host "make-msi.bat: BuildArch → arm64"
+          $bat = (Get-Content $batFile -Raw) -replace 'set BuildArch=x64', 'set BuildArch=arm64'
+          $bat = $bat -replace '\s+NCMsiHelper\.wxs', ''
+          $bat = $bat -replace '\s+NCMsiHelper\.wixobj', ''
+          $bat = $bat -replace '\s+RegistryCleanupCustomAction\.wxs', ''
+          $bat = $bat -replace '\s+RegistryCleanupCustomAction\.wixobj', ''
+          Set-Content $batFile $bat -Encoding ASCII
+          Write-Host "make-msi.bat: ARM64 + NCMsiHelper entfernt"
+
+          # Nextcloud.wxs: NCMsiHelper Custom Actions entfernen
+          $ncwxs = "$msiDir\Nextcloud.wxs"
+          $wxs = Get-Content $ncwxs -Raw
+          $wxs = $wxs -replace '(?s)\s*<!-- Detect legacy NSIS installation -->.*?</Property>', ''
+          $wxs = $wxs -replace '\s*<SetProperty Id="ExecNsisUninstaller"[^/]*/>', ''
+          $wxs = $wxs -replace '\s*<SetProperty Id="RemoveNavigationPaneEntries"[^/]*/>', ''
+          $wxs = $wxs -replace '\s*<Custom Action="ExecNsisUninstaller"[^>]*>[^<]*</Custom>', ''
+          $wxs = $wxs -replace '\s*<Custom Action="RemoveNavigationPaneEntries"[^>]*>[^<]*</Custom>', ''
+          $wxs = $wxs -replace '\s*<Custom Action="RegistryCleanupCustomAction"[^>]*>[^<]*</Custom>', ''
+          Set-Content $ncwxs $wxs -Encoding UTF8
+          Write-Host "Nextcloud.wxs: NCMsiHelper-Referenzen bereinigt"
 
           # Platform.wxi: arm64-Fall ergänzen (Datei kennt nur x64/x86)
           $platformWxi = "$msiDir\Platform.wxi"
