@@ -12,6 +12,11 @@ jobs:
   build:
     runs-on: windows-11-arm
 
+    env:
+      CRAFT_TARGET: windows-msvc2022_arm64-cl
+      CRAFT_MASTER_LOCATION: ${{ github.workspace }}\CraftMaster
+      CRAFT_MASTER_CONFIG: ${{ github.workspace }}\craftmaster.ini
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,241 +32,77 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_ENV
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
-      # ── Nextcloud-Binary-Cache ──────────────────────────────────────────────
-      # Gecacht: fertig gebautes + deployed C:\build\nextcloud-arm64 (mit allen DLLs).
-      # Cache-Hit → Clone/Patch/Configure/Build/Deploy komplett überspringen.
-      - name: Cache Nextcloud binary
-        id: cache-nc
-        uses: actions/cache@v4
-        with:
-          path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v1
-
-      # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
+      # ── MSVC ARM64 Compiler ────────────────────────────────────────────────
       - name: Setup MSVC ARM64
-        if: steps.cache-nc.outputs.cache-hit != 'true'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
 
-      - name: Setup Perl
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          "C:\Strawberry\perl\bin" | Add-Content $env:GITHUB_PATH
-          perl --version
-
-      - name: Verify MSVC compiler
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $cl = (Get-Command cl.exe -ErrorAction SilentlyContinue)?.Source
-          if (-not $cl) { throw "cl.exe nicht gefunden!" }
-          Write-Host "cl.exe gefunden: $cl"
-          cl.exe 2>&1 | Select-Object -First 2
-          echo "CC=cl"  >> $env:GITHUB_ENV
-          echo "CXX=cl" >> $env:GITHUB_ENV
-
-      - name: Setup Windows SDK paths
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $sdkVer = "10.0.26100.0"
-          $sdkBin = "C:\Program Files (x86)\Windows Kits\10\bin\$sdkVer\arm64"
-          $sdkInc = "C:\Program Files (x86)\Windows Kits\10\Include\$sdkVer"
-          $sdkLib = "C:\Program Files (x86)\Windows Kits\10\Lib\$sdkVer"
-          $vsVer  = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC" |
-                      Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name
-          $msvcLib = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\lib\arm64"
-          $msvcInc = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\include"
-          "$sdkBin" | Add-Content $env:GITHUB_PATH
-          $libPath = "$sdkLib\um\arm64;$sdkLib\ucrt\arm64;$msvcLib"
-          $incPath = "$msvcInc;$sdkInc\ucrt;$sdkInc\um;$sdkInc\shared;$sdkInc\winrt;$sdkInc\cppwinrt"
-          echo "LIB=$libPath"     >> $env:GITHUB_ENV
-          echo "INCLUDE=$incPath" >> $env:GITHUB_ENV
-          echo "VSVER=$vsVer"     >> $env:GITHUB_ENV
-          Write-Host "SDK Version: $sdkVer"
-          Write-Host "MSVC Version: $vsVer"
-
+      # ── Python (Craft läuft auf Python) ───────────────────────────────────
       - name: Setup Python
-        if: steps.cache-nc.outputs.cache-hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install aqt
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: python -m pip install aqtinstall==3.3.*
-
-      # ── Qt-Cache ────────────────────────────────────────────────────────────
-      - name: Cache Qt ARM64
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        id: cache-qt
+      # ── Craft-Root-Cache (alle deps + NC-Binary, keyed by NC-Version) ──────
+      # Cache-Hit → nur noch packaging, kein Build
+      - name: Cache Craft root
+        id: cache-craft
         uses: actions/cache@v4
         with:
-          path: C:\Qt
-          key: qt-6.11.1-arm64-msvc2022-webengine-v2
+          path: ${{ github.workspace }}\${{ env.CRAFT_TARGET }}
+          key: craft-arm64-${{ steps.nc-version.outputs.version }}-v1
 
-      - name: Install Qt ARM64
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-qt.outputs.cache-hit != 'true'
+      # ── CraftMaster klonen (immer, nur ~5 s) ──────────────────────────────
+      - name: Clone CraftMaster
         shell: pwsh
         run: |
-          python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
-            --outputdir C:\Qt `
-            --modules qt5compat qtpositioning qtwebsockets qtwebengine
-          if ($LASTEXITCODE -ne 0) {
-            # Fallback ohne WebEngine falls aqt-Spiegel unvollständig ist
-            Write-Warning "Vollständige Qt-Installation fehlgeschlagen, versuche ohne WebEngine..."
-            python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
-              --outputdir C:\Qt `
-              --modules qt5compat qtpositioning qtwebsockets
-            echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
-          }
+          git clone -q --depth=1 `
+            https://invent.kde.org/packaging/craftmaster.git `
+            "${{ env.CRAFT_MASTER_LOCATION }}"
 
-      - name: Detect Qt ARM64 path
-        if: steps.cache-nc.outputs.cache-hit != 'true'
+      # ── Craft-Hilfsfunktion als Skript ablegen ─────────────────────────────
+      - name: Write craft helper
         shell: pwsh
         run: |
-          $QtBase = "C:\Qt\6.11.1"
-          $QtDir = Get-ChildItem $QtBase -Directory |
-            Where-Object { $_.Name -like "*arm64*" } |
+          $script = @'
+          param([Parameter(ValueFromRemainingArguments)]$args)
+          python "$env:CRAFT_MASTER_LOCATION\CraftMaster.py" `
+            --config "$env:CRAFT_MASTER_CONFIG" `
+            --target $env:CRAFT_TARGET `
+            -c @args
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          '@
+          Set-Content "${{ github.workspace }}\craft.ps1" $script -Encoding UTF8
+
+      # ── Inkscape (für Icon-Generierung) ────────────────────────────────────
+      - name: Install Inkscape
+        if: steps.cache-craft.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          choco install inkscape -y --no-progress
+          $inkPath = Get-ChildItem "C:\Program Files\Inkscape*" -Directory -ErrorAction SilentlyContinue |
             Select-Object -First 1 -ExpandProperty FullName
-          if (-not $QtDir) {
-            throw "Qt ARM64-Verzeichnis nicht gefunden."
+          if ($inkPath) {
+            "$inkPath\bin" | Add-Content $env:GITHUB_PATH
+            Write-Host "Inkscape: $inkPath"
           }
-          Write-Host "Qt ARM64 gefunden: $QtDir"
-          echo "QT_ARM64_DIR=$QtDir" >> $env:GITHUB_ENV
-          "$QtDir\bin" | Add-Content $env:GITHUB_PATH
 
-      - name: Install CMake and Ninja
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        uses: lukka/get-cmake@latest
-
-      - name: Install pkg-config
-        if: steps.cache-nc.outputs.cache-hit != 'true'
+      # ── Craft initialisieren + Abhängigkeiten installieren ─────────────────
+      - name: Craft – setup and install dependencies
+        if: steps.cache-craft.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          choco install pkgconfiglite -y --no-progress
-          $found = Get-Command pkg-config -ErrorAction SilentlyContinue
-          if (-not $found) {
-            $chocoLib = "C:\ProgramData\chocolatey\lib\pkgconfiglite\tools"
-            if (Test-Path $chocoLib) {
-              $chocoLib | Add-Content $env:GITHUB_PATH
-            } else {
-              throw "pkg-config konnte nicht installiert werden"
-            }
-          }
+          & "${{ github.workspace }}\craft.ps1" `
+            --add-blueprint-repository "https://github.com/nextcloud/craft-blueprints-kde.git|master|"
+          & "${{ github.workspace }}\craft.ps1" `
+            --add-blueprint-repository "https://github.com/nextcloud/desktop-client-blueprints.git|master|"
+          & "${{ github.workspace }}\craft.ps1" craft
+          & "${{ github.workspace }}\craft.ps1" --install-deps nextcloud-client
 
-      # ── WiX (immer, für MSI-Build) ──────────────────────────────────────────
-      - name: Install WiX Toolset
-        shell: pwsh
-        run: |
-          choco install wixtoolset -y --no-progress
-          $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $wixPath) { throw "WiX Toolset nicht gefunden nach Installation" }
-          $wixBin = Join-Path $wixPath "bin"
-          $wixBin | Add-Content $env:GITHUB_PATH
-          Write-Host "WiX installiert: $wixBin"
-          & "$wixBin\candle.exe" -? 2>&1 | Select-Object -First 1
-
-      - name: Install SVG converter and IcoTool
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          # rsvg-convert: SVG → PNG (für State-Icons)
-          choco install rsvg-convert -y --no-progress
-          $found = Get-Command rsvg-convert -ErrorAction SilentlyContinue
-          if (-not $found) {
-            $chocoBin = "C:\ProgramData\chocolatey\bin"
-            if (Test-Path $chocoBin) { $chocoBin | Add-Content $env:GITHUB_PATH }
-          }
-          # icoutils (icotool): PNG → ICO (für App-Icon in nextcloud.exe)
-          choco install icoutils -y --no-progress
-          $icotool = Get-Command icotool -ErrorAction SilentlyContinue
-          if ($icotool) {
-            Write-Host "icotool gefunden: $($icotool.Source)"
-          } else {
-            # Chocolatey-Fallback-Pfade
-            @("C:\ProgramData\chocolatey\bin", "C:\ProgramData\chocolatey\lib\icoutils\tools") | ForEach-Object {
-              if (Test-Path $_) { $_ | Add-Content $env:GITHUB_PATH }
-            }
-            Write-Warning "icotool nicht direkt im PATH – Fallback-Pfade hinzugefügt"
-          }
-
-      # ── vcpkg-Cache ─────────────────────────────────────────────────────────
-      - name: Cache vcpkg packages
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        id: cache-vcpkg
-        uses: actions/cache@v4
-        with:
-          path: C:\build\vcpkg\installed
-          key: vcpkg-arm64-sqlite3-zlib-bzip2-liblzma-zstd-v1
-
-      - name: Bootstrap vcpkg
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          git clone https://github.com/microsoft/vcpkg.git C:\build\vcpkg --depth 1
-          C:\build\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
-          if ("${{ steps.cache-vcpkg.outputs.cache-hit }}" -ne "true") {
-            Write-Host "Installiere vcpkg-Pakete..."
-            C:\build\vcpkg\vcpkg.exe install `
-              sqlite3:arm64-windows `
-              zlib:arm64-windows `
-              bzip2:arm64-windows `
-              liblzma:arm64-windows `
-              zstd:arm64-windows `
-              --no-print-usage
-          } else {
-            Write-Host "vcpkg-Pakete aus Cache wiederhergestellt"
-          }
-
-      # ── OpenSSL, libp11, Deps (bestehende Caches, nur bei NC-Miss) ─────────
-      - name: Cache OpenSSL
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        id: cache-openssl
-        uses: actions/cache@v4
-        with:
-          path: C:\build\openssl-arm64
-          key: openssl-3.3-arm64-v5
-
-      - name: Build OpenSSL
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-openssl.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: .\scripts\build-openssl.ps1
-
-      - name: Cache libp11
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        id: cache-libp11
-        uses: actions/cache@v4
-        with:
-          path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-v6
-
-      - name: Build libp11
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-libp11.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: .\scripts\build-libp11.ps1
-
-      - name: Cache Dependencies
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        id: cache-deps
-        uses: actions/cache@v4
-        with:
-          path: C:\build\deps-arm64
-          key: deps-arm64-qt6.11.1-v7
-
-      - name: Build Dependencies
-        if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-deps.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: .\scripts\build-deps.ps1
-
-      # ── Nextcloud bauen (nur bei Cache-Miss) ────────────────────────────────
-      - name: Clone Nextcloud
-        if: steps.cache-nc.outputs.cache-hit != 'true'
+      # ── Nextcloud-Quellcode klonen (spezifische Version) ───────────────────
+      - name: Clone Nextcloud source
+        if: steps.cache-craft.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $version = $env:VERSION
@@ -270,155 +111,70 @@ jobs:
             --branch $version --depth 1 C:\build\nextcloud-src
           Set-Location C:\build\nextcloud-src
           git submodule update --init --recursive
-          git clone https://github.com/KDAB/KDSingleApplication.git `
-            C:\build\nextcloud-src\src\3rdparty\kdsingleapplication
 
-      - name: Apply Patches
-        if: steps.cache-nc.outputs.cache-hit != 'true'
+      # ── ARM64-Patches anwenden ─────────────────────────────────────────────
+      - name: Apply ARM64 patches
+        if: steps.cache-craft.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Set-Location C:\build\nextcloud-src
-          git apply $env:GITHUB_WORKSPACE\patches\001-cmake-optional-type.patch
-          Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
+          $patchDir = "${{ github.workspace }}\patches"
 
-          (Get-Content "CMakeLists.txt") `
-            -replace 'pkg_check_modules\(OPENSC-LIBP11 libp11 REQUIRED IMPORTED_TARGET\)',
-                     'pkg_check_modules(OPENSC-LIBP11 libp11 QUIET IMPORTED_TARGET)' |
-            Set-Content "CMakeLists.txt"
-
-          $syncCmake = "src\libsync\CMakeLists.txt"
-          (Get-Content $syncCmake) `
-            -replace 'PkgConfig::OPENSC-LIBP11', '' |
-            Set-Content $syncCmake
-
-          $content = Get-Content $syncCmake -Raw
-          $inject = "`r`n# libp11 direkt einbinden (MSVC/ARM64)`r`nif(WIN32)`r`n  target_link_libraries(nextcloudsync PRIVATE `"C:/build/libp11-arm64/libp11.lib`")`r`nendif()`r`n"
-          $content = $content -replace '(target_link_libraries\(nextcloudsync[^)]*\))', "`$1$inject"
-          Set-Content $syncCmake $content
-
-          Write-Host "libp11 Injection abgeschlossen:"
-          Select-String -Path $syncCmake -Pattern 'libp11'
-
-      - name: Configure
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $QtToolchain = "$env:QT_ARM64_DIR\lib\cmake\Qt6\qt.toolchain.cmake"
-          $env:PATH = ($env:PATH -split ';' |
-            Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
-          New-Item -ItemType Directory -Force C:\build\nextcloud-build | Out-Null
-          $prefixPath = "C:/build/deps-arm64/ecm;C:/build/deps-arm64/qtkeychain;C:/build/deps-arm64/kf6archive;C:/build/deps-arm64/kf6guiaddons;C:/build/deps-arm64/kdsingleapp"
-          $webEngineArgs = @()
-          if ($env:NO_WEBENGINE -eq "1") {
-            Write-Warning "Konfiguriere ohne WebEngine"
-            $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
-          } else {
-            $weCore = "$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineCore"
-            if (Test-Path $weCore) {
-              Write-Host "WebEngine gefunden – wird aktiviert"
-              $webEngineArgs = @(
-                "-DBUILD_WITH_WEBENGINE=ON",
-                "-DQt6WebEngineCore_DIR=$weCore",
-                "-DQt6WebEngineWidgets_DIR=$env:QT_ARM64_DIR\lib\cmake\Qt6WebEngineWidgets"
-              )
-            } else {
-              Write-Warning "WebEngine-Verzeichnis nicht gefunden – Build ohne WebEngine"
-              $webEngineArgs = @("-DBUILD_WITH_WEBENGINE=OFF")
-            }
-          }
-          cmake C:\build\nextcloud-src `
-            -B C:\build\nextcloud-build `
-            -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_INSTALL_PREFIX=C:\build\nextcloud-arm64 `
-            "-DCMAKE_TOOLCHAIN_FILE=$QtToolchain" `
-            "-DQT_CHAINLOAD_TOOLCHAIN_FILE=C:\build\vcpkg\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=arm64-windows `
-            "-DCMAKE_PREFIX_PATH=$prefixPath" `
-            -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
-            "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
-            "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
-            "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
-            "-DZLIB_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\z.lib" `
-            "-DZLIB_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
-            @webEngineArgs
-
-      - name: Build
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $env:PATH = ($env:PATH -split ';' |
-            Where-Object { $_ -notlike '*Strawberry\c*' }) -join ';'
-          cmake --build C:\build\nextcloud-build --parallel 4
-
-      - name: Install and Deploy
-        if: steps.cache-nc.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $InstallDir = "C:\build\nextcloud-arm64"
-          $BinDir     = "$InstallDir\bin"
-
-          cmake --install C:\build\nextcloud-build
-
-          # Deps: qtkeychain, KF6Archive, KDSingleApplication
-          Copy-Item C:\build\deps-arm64\qtkeychain\bin\qt6keychain.dll `
-            "$env:QT_ARM64_DIR\bin\" -Force
-          Get-ChildItem C:\build\deps-arm64\kf6archive\bin\*.dll -ErrorAction SilentlyContinue | `
-            ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
-          Get-ChildItem C:\build\deps-arm64\kdsingleapp\bin\*.dll -ErrorAction SilentlyContinue | `
-            ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
-
-          & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
-            --release `
-            --no-translations `
-            "$BinDir\nextcloud.exe"
-
-          Copy-Item C:\build\libp11-arm64\libp11.dll "$BinDir\" -Force
-          Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll "$BinDir\" -Force
-
-          $opensslBin = "C:\build\openssl-arm64\bin"
-          if (Test-Path $opensslBin) {
-            Copy-Item "$opensslBin\*.dll" "$BinDir\" -Force
-          } else {
-            $fallback = Get-ChildItem "C:\build\openssl-arm64" -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue
-            foreach ($dll in $fallback) { Copy-Item $dll.FullName "$BinDir\" -Force }
+          if (Test-Path "$patchDir\001-cmake-optional-type.patch") {
+            git apply "$patchDir\001-cmake-optional-type.patch"
+            Write-Host "Patch 001 angewendet"
           }
 
-          $vsVer   = $env:VSVER
-          $msvcBin = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\bin\Hostarm64\arm64"
-          @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll","msvcp140_1.dll","msvcp140_2.dll","concrt140.dll") | ForEach-Object {
-            $src = Join-Path $msvcBin $_
-            if (Test-Path $src) { Copy-Item $src "$BinDir\" -Force; Write-Host "Runtime: $_" }
+          # libp11-Header kopieren falls vorhanden
+          if (Test-Path "$patchDir\libp11-headers") {
+            Copy-Item "$patchDir\libp11-headers\*" src\libsync\ -Force
+            Write-Host "libp11-Header kopiert"
           }
 
-          $ucrtDir = "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\arm64"
-          if (Test-Path $ucrtDir) { Copy-Item "$ucrtDir\*.dll" "$BinDir\" -Force }
-
-          Write-Host "DLLs in $BinDir"
-          Get-ChildItem "$BinDir\*.dll" | Sort-Object Name | Select-Object Name
-
-      # ── MSI bauen + Release (immer) ─────────────────────────────────────────
-      - name: Build MSI Installer
+      # ── Build via Craft ────────────────────────────────────────────────────
+      - name: Craft – build nextcloud-client
+        if: steps.cache-craft.outputs.cache-hit != 'true'
         shell: pwsh
-        run: .\scripts\generate-msi.ps1
+        run: |
+          & "${{ github.workspace }}\craft.ps1" `
+            --src-dir C:\build\nextcloud-src nextcloud-client
 
+      # ── Packaging via Craft (erzeugt NSIS-Installer) ──────────────────────
+      - name: Craft – package
+        shell: pwsh
+        run: |
+          & "${{ github.workspace }}\craft.ps1" --package nextcloud-client
+
+          # Installer in Workspace kopieren
+          $version = $env:VERSION
+          $craftRoot = "${{ github.workspace }}\${{ env.CRAFT_TARGET }}"
+          $installer = Get-ChildItem "$craftRoot\packages" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) {
+            throw "Kein Installer gefunden in $craftRoot\packages"
+          }
+          $dest = "${{ github.workspace }}\Nextcloud-${version}-arm64-Setup.exe"
+          Copy-Item $installer.FullName $dest -Force
+          $mb = [math]::Round((Get-Item $dest).Length / 1MB, 1)
+          Write-Host "Installer: $dest ($mb MB)"
+
+      # ── Release veröffentlichen ────────────────────────────────────────────
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.VERSION }}-arm64
-          name: Nextcloud ${{ env.VERSION }} ARM64 (inoffiziell)
+          name: Nextcloud ${{ env.VERSION }} ARM64 (Community Build)
           body: >-
-            Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
+            Nextcloud Desktop ARM64 - Inoffizieller Community-Build fuer Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
 
-            .msi: Standard Windows Installer mit Startmenue, Desktop-Verknuepfung
-            und sauberem Deinstaller ueber "Apps & Features".
+            Gebaut mit KDE Craft – identisches Build-System wie der offizielle Nextcloud-Client,
+            kompiliert nativ fuer ARM64.
 
             Systemvoraussetzungen: Windows 11 ARM64 oder Windows 10 ARM64 ab Version 1903.
-            Alle Abhaengigkeiten sind enthalten (Qt 6.11.1, OpenSSL 3.3, MSVC Runtime, libp11).
 
-            Hinweis: Dies ist kein offizielles Nextcloud-Produkt.
-            Offizielle Builds unter https://nextcloud.com/install/
+            HINWEIS: Dies ist kein offizielles Nextcloud-Produkt und nicht von Nextcloud GmbH signiert.
+            Offizielle Builds: https://nextcloud.com/install/
           files: |
-            Nextcloud-*-arm64.msi
+            Nextcloud-*-arm64-Setup.exe
