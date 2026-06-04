@@ -371,10 +371,24 @@ jobs:
           Get-ChildItem C:\build\deps-arm64\kdsingleapp\bin\*.dll -ErrorAction SilentlyContinue | `
             ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
 
+          # windeployqt mit QML-Verzeichnis → deployed Qt Quick/QML-Module für Tray-Popup
           & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
             --release `
             --no-translations `
+            --qmldir "C:\build\nextcloud-src\src\gui" `
             "$BinDir\nextcloud.exe"
+
+          # QtWebEngineProcess.exe + Ressourcen (für OAuth-Flow und WebView)
+          $weProcess = "$env:QT_ARM64_DIR\bin\QtWebEngineProcess.exe"
+          if (Test-Path $weProcess) {
+            Copy-Item $weProcess "$BinDir\" -Force
+            Write-Host "QtWebEngineProcess.exe deployed"
+            # WebEngine-Ressourcen
+            @("resources", "translations\qtwebengine_locales") | ForEach-Object {
+              $src = "$env:QT_ARM64_DIR\$_"
+              if (Test-Path $src) { Copy-Item $src "$BinDir\" -Recurse -Force }
+            }
+          }
 
           Copy-Item C:\build\libp11-arm64\libp11.dll "$BinDir\" -Force
           Copy-Item C:\build\vcpkg\installed\arm64-windows\bin\*.dll "$BinDir\" -Force

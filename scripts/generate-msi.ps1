@@ -278,6 +278,44 @@ $iconBlock
       </Component>
     </DirectoryRef>
 
+    <!-- COM-Registrierung der Shell-Extensions (nötig für VFS-Sync und Explorer-Integration) -->
+    <CustomAction Id="CA_RegisterCfApi"
+      Directory="INSTALLDIR"
+      ExeCommand="[System64Folder]regsvr32.exe /s &quot;[INSTALLDIR]CfApiShellExtensions.dll&quot;"
+      Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CA_RegisterContextMenu"
+      Directory="INSTALLDIR"
+      ExeCommand="[System64Folder]regsvr32.exe /s &quot;[INSTALLDIR]NCContextMenu.dll&quot;"
+      Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CA_RegisterOverlays"
+      Directory="INSTALLDIR"
+      ExeCommand="[System64Folder]regsvr32.exe /s &quot;[INSTALLDIR]NCOverlays.dll&quot;"
+      Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <CustomAction Id="CA_UnregisterCfApi"
+      Directory="INSTALLDIR"
+      ExeCommand="[System64Folder]regsvr32.exe /u /s &quot;[INSTALLDIR]CfApiShellExtensions.dll&quot;"
+      Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CA_UnregisterContextMenu"
+      Directory="INSTALLDIR"
+      ExeCommand="[System64Folder]regsvr32.exe /u /s &quot;[INSTALLDIR]NCContextMenu.dll&quot;"
+      Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CA_UnregisterOverlays"
+      Directory="INSTALLDIR"
+      ExeCommand="[System64Folder]regsvr32.exe /u /s &quot;[INSTALLDIR]NCOverlays.dll&quot;"
+      Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- Bei Installation: nach dem Kopieren der Dateien registrieren -->
+      <Custom Action="CA_RegisterCfApi"        After="InstallFiles">NOT Installed</Custom>
+      <Custom Action="CA_RegisterContextMenu"  After="CA_RegisterCfApi">NOT Installed</Custom>
+      <Custom Action="CA_RegisterOverlays"     After="CA_RegisterContextMenu">NOT Installed</Custom>
+      <!-- Bei Deinstallation: vor dem Löschen der Dateien deregistrieren -->
+      <Custom Action="CA_UnregisterCfApi"       Before="RemoveFiles">Installed AND REMOVE~="ALL"</Custom>
+      <Custom Action="CA_UnregisterContextMenu" Before="RemoveFiles">Installed AND REMOVE~="ALL"</Custom>
+      <Custom Action="CA_UnregisterOverlays"    Before="RemoveFiles">Installed AND REMOVE~="ALL"</Custom>
+    </InstallExecuteSequence>
+
     <!-- UI: Minimal (nur Lizenz + Installieren) -->
     <WixVariable Id="WixUILicenseRtf" Value="$licRtf" />
     <UIRef Id="WixUI_Minimal" />
