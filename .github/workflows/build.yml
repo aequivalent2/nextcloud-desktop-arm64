@@ -193,21 +193,29 @@ jobs:
             }
           }
 
-      # ── vcpkg-Cache ─────────────────────────────────────────────────────────
-      - name: Cache vcpkg packages
+      # ── vcpkg-Cache (ganzes Verzeichnis, nicht nur installed) ───────────────
+      - name: Cache vcpkg
         if: steps.cache-nc.outputs.cache-hit != 'true'
         id: cache-vcpkg
         uses: actions/cache@v4
         with:
-          path: C:\build\vcpkg\installed
-          key: vcpkg-arm64-sqlite3-zlib-bzip2-liblzma-zstd-v1
+          path: C:\build\vcpkg
+          key: vcpkg-arm64-sqlite3-zlib-bzip2-liblzma-zstd-v2
 
       - name: Bootstrap vcpkg
         if: steps.cache-nc.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          git clone https://github.com/microsoft/vcpkg.git C:\build\vcpkg --depth 1
-          C:\build\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          # Clone nur wenn nicht bereits vorhanden (Cache kann Verzeichnis teilweise restauriert haben)
+          if (-not (Test-Path "C:\build\vcpkg\.git")) {
+            git clone https://github.com/microsoft/vcpkg.git C:\build\vcpkg --depth 1
+          } else {
+            Write-Host "vcpkg bereits vorhanden (aus Cache)"
+          }
+          # Bootstrap nur wenn vcpkg.exe fehlt
+          if (-not (Test-Path "C:\build\vcpkg\vcpkg.exe")) {
+            C:\build\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          }
           "C:\build\vcpkg" | Add-Content $env:GITHUB_PATH
           if ("${{ steps.cache-vcpkg.outputs.cache-hit }}" -ne "true") {
             Write-Host "Installiere vcpkg-Pakete..."
