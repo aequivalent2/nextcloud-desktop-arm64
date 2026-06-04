@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v5
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v6
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -160,6 +160,8 @@ jobs:
           if (-not $wixPath) { throw "WiX Toolset nicht gefunden nach Installation" }
           $wixBin = Join-Path $wixPath "bin"
           $wixBin | Add-Content $env:GITHUB_PATH
+          # WIX env var wird von cmake (NCMsiHelper) und make-msi.bat benötigt
+          echo "WIX=$wixPath" >> $env:GITHUB_ENV
           Write-Host "WiX installiert: $wixBin"
           & "$wixBin\candle.exe" -? 2>&1 | Select-Object -First 1
 
@@ -352,6 +354,7 @@ jobs:
             "-DCMAKE_PREFIX_PATH=$prefixPath" `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
             -DBUILD_WIN_MSI=ON `
+            "-DICOTOOL_EXECUTABLE=C:\tools\icotool-shim\icotool.bat" `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
