@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v4
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v5
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -101,23 +101,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\Qt
-          key: qt-6.11.1-arm64-msvc2022-webengine-shadertools-v3
+          key: qt-6.11.1-arm64-msvc2022-shadertools-v5
 
       - name: Install Qt ARM64
         if: steps.cache-nc.outputs.cache-hit != 'true' && steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
+          # Qt WebEngine ist NICHT im öffentlichen ARM64-Mirror (download.qt.io/windows_arm64)
+          # verfügbar – nur über Qt Maintenance Tool mit Qt-Account. Build daher ohne WebEngine.
+          echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
+
           python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
             --outputdir C:\Qt `
-            --modules qt5compat qtpositioning qtwebsockets qtwebengine qtshadertools
-          if ($LASTEXITCODE -ne 0) {
-            # Fallback ohne WebEngine falls aqt-Spiegel unvollständig ist
-            Write-Warning "Vollständige Qt-Installation fehlgeschlagen, versuche ohne WebEngine..."
-            python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
-              --outputdir C:\Qt `
-              --modules qt5compat qtpositioning qtwebsockets
-            echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
-          }
+            --modules qt5compat qtpositioning qtwebsockets qtshadertools
+          if ($LASTEXITCODE -ne 0) { throw "Qt-Installation fehlgeschlagen" }
 
       - name: Detect Qt ARM64 path
         if: steps.cache-nc.outputs.cache-hit != 'true'
@@ -177,21 +174,46 @@ jobs:
             $chocoBin = "C:\ProgramData\chocolatey\bin"
             if (Test-Path $chocoBin) { $chocoBin | Add-Content $env:GITHUB_PATH }
           }
-          # ImageMagick: PNG → ICO (icoutils gibt es nicht auf Chocolatey; ImageMagick ist der ECMAddAppIcon-Fallback)
+          # ImageMagick: PNG → ICO
           choco install imagemagick.tool -y --no-progress
-          $magick = Get-Command magick -ErrorAction SilentlyContinue
-          if ($magick) {
-            Write-Host "ImageMagick gefunden: $($magick.Source)"
-          } else {
-            $imDir = Get-ChildItem "C:\Program Files\ImageMagick*" -Directory -ErrorAction SilentlyContinue |
-              Select-Object -First 1 -ExpandProperty FullName
-            if ($imDir) {
-              $imDir | Add-Content $env:GITHUB_PATH
-              Write-Host "ImageMagick Pfad hinzugefügt: $imDir"
-            } else {
-              Write-Warning "ImageMagick nicht gefunden – App-Icon wird möglicherweise nicht eingebettet"
-            }
+          $imDir = Get-ChildItem "C:\Program Files\ImageMagick*" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $imDir) {
+            $magick = Get-Command magick -ErrorAction SilentlyContinue
+            if ($magick) { $imDir = Split-Path $magick.Source }
           }
+          if ($imDir) {
+            $imDir | Add-Content $env:GITHUB_PATH
+            Write-Host "ImageMagick: $imDir"
+          } else {
+            Write-Warning "ImageMagick nicht gefunden"
+          }
+
+          # icotool-Shim: ECMAddAppIcon ruft 'icotool --create -o out.ico in1.png...' auf
+          # Wir erstellen einen Batch-Wrapper der das an ImageMagick weiterleitet
+          $shimDir = "C:\tools\icotool-shim"
+          New-Item -ItemType Directory -Force $shimDir | Out-Null
+          Set-Content "$shimDir\icotool.bat" @'
+@echo off
+setlocal enabledelayedexpansion
+set OUTPUT=
+set INPUTS=
+:parse
+if "%~1"=="" goto done
+if "%~1"=="--create" goto next
+if "%~1"=="-o" (set OUTPUT=%~2& shift& goto next)
+if "%~1"=="--raw" goto next
+if "%~1"=="-r" goto next
+set INPUTS=!INPUTS! "%~1"
+:next
+shift
+goto parse
+:done
+if "%OUTPUT%"=="" exit /b 1
+magick !INPUTS! "%OUTPUT%"
+'@
+          $shimDir | Add-Content $env:GITHUB_PATH
+          Write-Host "icotool-Shim erstellt: $shimDir\icotool.bat"
 
       # ── vcpkg-Cache (ganzes Verzeichnis, nicht nur installed) ───────────────
       - name: Cache vcpkg
@@ -385,11 +407,16 @@ jobs:
             ForEach-Object { Copy-Item $_.FullName "$BinDir\" -Force; Write-Host "Dep DLL: $($_.Name)" }
 
           # windeployqt mit QML-Verzeichnis → deployed Qt Quick/QML-Module für Tray-Popup
+          # Exit-Code wird separat geprüft: Warnings (z.B. fehlende optionale DLLs) sollen
+          # den Step nicht abbrechen, solange nextcloud.exe korrekt deployed ist
           & "$env:QT_ARM64_DIR\bin\windeployqt.exe" `
             --release `
             --no-translations `
             --qmldir "C:\build\nextcloud-src\src\gui" `
-            "$BinDir\nextcloud.exe"
+            "$BinDir\nextcloud.exe" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "windeployqt exit $LASTEXITCODE (Warnings ignoriert – prüfe ob nextcloud.exe deploybar ist)"
+          }
 
           # QtWebEngineProcess.exe + Ressourcen (für OAuth-Flow und WebView)
           $weProcess = "$env:QT_ARM64_DIR\bin\QtWebEngineProcess.exe"
