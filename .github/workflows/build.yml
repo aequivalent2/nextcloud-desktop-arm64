@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v8
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v9
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -447,6 +447,19 @@ jobs:
 
           Write-Host "DLLs in $BinDir"
           Get-ChildItem "$BinDir\*.dll" | Sort-Object Name | Select-Object Name
+
+          # i18n und config in BinDir kopieren damit make-msi.bat sie mit harvestet
+          # (cmake installiert sie nach nextcloud-arm64\i18n\ und nextcloud-arm64\config\,
+          #  aber make-msi.bat harvested nur aus bin\)
+          $installRoot = "C:\build\nextcloud-arm64"
+          if (Test-Path "$installRoot\i18n") {
+            Copy-Item "$installRoot\i18n" "$BinDir\i18n" -Recurse -Force
+            Write-Host "i18n nach BinDir kopiert"
+          }
+          if (Test-Path "$installRoot\config") {
+            Copy-Item "$installRoot\config" "$BinDir\config" -Recurse -Force
+            Write-Host "config nach BinDir kopiert (sync-exclude.lst etc.)"
+          }
 
       # ── Offizielles Nextcloud MSI bauen (immer) ────────────────────────────
       - name: Build official Nextcloud MSI
