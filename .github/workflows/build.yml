@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v9
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v10
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -196,8 +196,9 @@ jobs:
           $shimDir = "C:\tools\icotool-shim"
           New-Item -ItemType Directory -Force $shimDir | Out-Null
           Copy-Item "$env:GITHUB_WORKSPACE\scripts\icotool-shim.bat" "$shimDir\icotool.bat"
+          Copy-Item "$env:GITHUB_WORKSPACE\scripts\icotool-shim.bat" "$shimDir\icotool.cmd"
           $shimDir | Add-Content $env:GITHUB_PATH
-          Write-Host "icotool-Shim installiert: $shimDir\icotool.bat"
+          Write-Host "icotool-Shim installiert: $shimDir\icotool.cmd"
 
       # ── vcpkg-Cache (ganzes Verzeichnis, nicht nur installed) ───────────────
       - name: Cache vcpkg
@@ -362,7 +363,7 @@ jobs:
             "-DCMAKE_PREFIX_PATH=$prefixPath" `
             -DOPENSSL_ROOT_DIR=C:\build\openssl-arm64 `
             -DBUILD_WIN_MSI=ON `
-            "-DICOTOOL_EXECUTABLE=C:\tools\icotool-shim\icotool.bat" `
+            "-DIcoTool_EXECUTABLE=C:\tools\icotool-shim\icotool.cmd" `
             "-DECM_DIR=C:\build\deps-arm64\ecm\share\ECM\cmake" `
             "-DSQLite3_INCLUDE_DIR=C:\build\vcpkg\installed\arm64-windows\include" `
             "-DSQLite3_LIBRARY=C:\build\vcpkg\installed\arm64-windows\lib\sqlite3.lib" `
