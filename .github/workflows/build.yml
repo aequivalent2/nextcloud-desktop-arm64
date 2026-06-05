@@ -186,6 +186,7 @@ jobs:
           }
           if ($imDir) {
             $imDir | Add-Content $env:GITHUB_PATH
+            "MAGICK_HOME=$imDir" | Add-Content $env:GITHUB_ENV
             Write-Host "ImageMagick: $imDir"
           } else {
             Write-Warning "ImageMagick nicht gefunden"
