@@ -8,6 +8,7 @@ set INPUTS=
 :parse
 if "%~1"=="" goto done
 if "%~1"=="--create" goto next
+if "%~1"=="-c" goto next
 if "%~1"=="-o" (set OUTPUT=%~2& shift& goto next)
 if "%~1"=="--raw" goto next
 if "%~1"=="-r" goto next
