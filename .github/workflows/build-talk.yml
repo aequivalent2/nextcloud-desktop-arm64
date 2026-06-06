@@ -100,7 +100,7 @@ jobs:
         run: |
           $tag = "talk-$env:VERSION-arm64"
           $headers = @{ Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"; "User-Agent" = "nextcloud-arm64-builder" }
-          $release = Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers $headers -ErrorAction SilentlyContinue
+          try { $release = Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers $headers } catch { $release = $null }
           if ($release) {
             foreach ($asset in $release.assets) {
               Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/assets/$($asset.id)" -Method Delete -Headers $headers
