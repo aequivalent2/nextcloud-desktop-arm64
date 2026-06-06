@@ -47,7 +47,7 @@ jobs:
             Write-Host "ARM64-Build-Scripts fehlen im stable Tag $env:VERSION - hole sie selektiv aus main nach"
             git -C C:\build\talk-desktop fetch --depth 1 origin main
             foreach ($f in 'package.json','forge.config.js','build/resolveBuildConfig.js') {
-              git -C C:\build\talk-desktop checkout origin/main -- $f
+              git -C C:\build\talk-desktop checkout FETCH_HEAD -- $f
               Write-Host "Übernommen aus main: $f"
             }
           } else {
