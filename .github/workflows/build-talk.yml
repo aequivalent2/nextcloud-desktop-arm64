@@ -48,9 +48,9 @@ jobs:
             git -C C:\build\talk-desktop fetch --depth 1 origin main
             # Kompletten build/-Ordner + Konfig-Dateien aus main übernehmen,
             # damit alle gegenseitigen require()-Abhängigkeiten (z.B. appinfo.utils.js) mitkommen.
-            foreach ($f in 'package.json','forge.config.js','build') {
-              git -C C:\build\talk-desktop checkout FETCH_HEAD -- $f
-              Write-Host "Übernommen aus main: $f"
+            foreach ($f in 'package.json','package-lock.json','forge.config.js','webpack.main.config.js','webpack.renderer.config.js','build') {
+              git -C C:\build\talk-desktop checkout FETCH_HEAD -- $f 2>$null
+              if ($LASTEXITCODE -eq 0) { Write-Host "Übernommen aus main: $f" }
             }
           } else {
             Write-Host "ARM64-Build-Scripts bereits in $env:VERSION enthalten"
