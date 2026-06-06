@@ -1,0 +1,119 @@
+name: Build Nextcloud Talk ARM64
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get latest Talk version
+        id: talk-version
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod "https://api.github.com/repos/nextcloud-releases/talk-desktop/releases/latest" `
+            -Headers @{ "User-Agent" = "nextcloud-arm64-builder" }
+          $version = $release.tag_name
+          Write-Host "Neuester Release: $version"
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Clone Talk Desktop source
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch $env:VERSION https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
+          Write-Host "Talk Desktop $env:VERSION geklont"
+
+      - name: Clone Talk (spreed) source
+        shell: pwsh
+        run: |
+          # Talk Desktop braucht den Nextcloud Talk (spreed) Quellcode
+          # Stabile Version aus package.json des talk-desktop auslesen
+          $pkg = Get-Content "C:\build\talk-desktop\package.json" | ConvertFrom-Json
+          $spreedVersion = $pkg.talk.stable
+          Write-Host "Spreed Version: $spreedVersion"
+          git clone --depth 1 --branch $spreedVersion https://github.com/nextcloud/spreed.git C:\build\talk-desktop\spreed 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Branch $spreedVersion nicht gefunden, verwende main"
+            git clone --depth 1 https://github.com/nextcloud/spreed.git C:\build\talk-desktop\spreed
+          }
+
+      - name: Cache node_modules (talk-desktop)
+        uses: actions/cache@v4
+        with:
+          path: C:\build\talk-desktop\node_modules
+          key: talk-desktop-node-${{ steps.talk-version.outputs.version }}-v1
+
+      - name: Cache node_modules (spreed)
+        uses: actions/cache@v4
+        with:
+          path: C:\build\talk-desktop\spreed\node_modules
+          key: talk-spreed-node-${{ steps.talk-version.outputs.version }}-v1
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          Set-Location C:\build\talk-desktop
+          npm ci
+          npm ci --prefix=spreed
+
+      - name: Build Talk Desktop ARM64
+        shell: pwsh
+        run: |
+          Set-Location C:\build\talk-desktop
+          # Offizielles ARM64-Windows-Target (in package.json definiert)
+          # make = package + installer (exe + msi)
+          npm run package:windows:arm64
+          Write-Host "Build abgeschlossen"
+
+      - name: Find and copy artifacts
+        shell: pwsh
+        run: |
+          $outDir = Get-ChildItem "C:\build\talk-desktop\out" -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $outDir) {
+            # Fallback: ZIP suchen
+            $outDir = Get-ChildItem "C:\build\talk-desktop\out" -Recurse -Filter "*.zip" -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+          }
+          if (-not $outDir) { throw "Kein Build-Artifact gefunden in C:\build\talk-desktop\out" }
+          Write-Host "Artifact: $($outDir.FullName)"
+
+          # Alle Artifacts in Workspace kopieren
+          Get-ChildItem "C:\build\talk-desktop\out" -Recurse -File |
+            Where-Object { $_.Extension -in '.exe','.msi','.zip' } |
+            ForEach-Object {
+              $dest = "$env:GITHUB_WORKSPACE\$($_.Name -replace 'x64','arm64')"
+              Copy-Item $_.FullName $dest -Force
+              Write-Host "Kopiert: $dest"
+            }
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: talk-${{ env.VERSION }}-arm64
+          name: Nextcloud Talk ${{ env.VERSION }} ARM64 (inoffiziell)
+          body: >-
+            Nextcloud Talk Desktop ARM64 - Inoffizieller Build für Windows on ARM
+            (Surface Pro X, Snapdragon X Elite, etc.).
+            Gebaut aus dem offiziellen Nextcloud Talk Desktop Quellcode.
+          files: |
+            Nextcloud*arm64*.exe
+            Nextcloud*arm64*.msi
+            Nextcloud*arm64*.zip
+          fail_on_unmatched_files: false
