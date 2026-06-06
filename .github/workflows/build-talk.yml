@@ -80,6 +80,9 @@ jobs:
           TALK_PATH: C:\build\talk-desktop\spreed
         run: |
           Set-Location C:\build\talk-desktop
+          # Erst packen (erzeugt out\Nextcloud Talk-win32-arm64\)
+          npm run build:windows:arm64
+          # Dann Installer erstellen (exe + msi)
           npm run package:windows:arm64
           Write-Host "Build abgeschlossen"
 
