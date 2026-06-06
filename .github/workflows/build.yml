@@ -591,6 +591,15 @@ jobs:
           body: >-
             Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
+          files: "${{ github.workspace }}\\Nextcloud-*-arm64.msi"
+          fail_on_unmatched_files: truesoftprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ env.VERSION }}-arm64
+          name: Nextcloud ${{ env.VERSION }} ARM64 (inoffiziell)
+          body: >-
+            Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
+            (Surface Pro X, Snapdragon X Elite, etc.).
 
             .msi: Standard Windows Installer mit Startmenue, Desktop-Verknuepfung
             und sauberem Deinstaller ueber "Apps & Features".
