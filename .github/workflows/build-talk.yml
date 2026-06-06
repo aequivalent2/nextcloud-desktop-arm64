@@ -35,9 +35,24 @@ jobs:
       - name: Clone Talk Desktop source
         shell: pwsh
         run: |
-          # main klonen wegen ARM64-Build-Scripts (ab PR #1725, nach v2.1.2 gemerged)
-          git clone --depth 1 https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
-          Write-Host "Talk Desktop main geklont (enthält ARM64-Build-Scripts)"
+          # Stable Release-Tag klonen (Produktionscode, kein dev/main)
+          git clone --depth 1 --branch $env:VERSION https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
+          Write-Host "Talk Desktop $env:VERSION geklont (stable)"
+
+          # Das stable Tag enthält die ARM64-Build-Scripts evtl. noch nicht (erst ab PR #1725,
+          # nach v2.1.2 in main gemerged). Falls der Script fehlt, NUR die paar Build-Plumbing-
+          # Dateien aus main nachziehen (Pinning bleibt stable) statt komplett auf main zu bauen.
+          $pkg = Get-Content "C:\build\talk-desktop\package.json" -Raw | ConvertFrom-Json
+          if (-not ($pkg.scripts.PSObject.Properties.Name -contains 'package:windows:arm64')) {
+            Write-Host "ARM64-Build-Scripts fehlen im stable Tag $env:VERSION - hole sie selektiv aus main nach"
+            git -C C:\build\talk-desktop fetch --depth 1 origin main
+            foreach ($f in 'package.json','forge.config.js','build/resolveBuildConfig.js') {
+              git -C C:\build\talk-desktop checkout origin/main -- $f
+              Write-Host "Übernommen aus main: $f"
+            }
+          } else {
+            Write-Host "ARM64-Build-Scripts bereits in $env:VERSION enthalten"
+          }
 
       - name: Clone Talk (spreed) source
         shell: pwsh
@@ -128,7 +143,7 @@ jobs:
           body: >-
             Nextcloud Talk Desktop ARM64 - Inoffizieller Build für Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
-            Gebaut aus dem offiziellen Nextcloud Talk Desktop Quellcode (main-Branch).
+            Gebaut aus dem offiziellen stabilen Nextcloud Talk Desktop Release ${{ env.VERSION }}.
           files: |
             Nextcloud*arm64*.exe
             Nextcloud*arm64*.msi
