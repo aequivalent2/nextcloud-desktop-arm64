@@ -1,14 +1,19 @@
 """
 icotool shim - creates .ico files from PNGs using Pillow.
 Usage (mirrors icotool): icotool-shim.py -c -o output.ico [-r hires.png] input1.png input2.png ...
-The -r (raw/uncompressed) flag is accepted but ignored (Pillow handles sizing automatically).
+
+Wichtig: Pillow's ICO-Writer skaliert beim Schreiben mehrerer Groessen IMMER vom
+Basisbild (erstes Bild) herunter und ignoriert dabei die in append_images
+uebergebenen Bilder fuer's Resizing. Daher MUSS das hochaufgeloesteste Bild als
+Basisbild verwendet werden - sonst werden alle Groessen aus einer kleinen
+Vorlage hochskaliert -> verpixelt.
 """
 import sys
 from PIL import Image
 
 output = None
 inputs = []
-hires = None  # -r <file>: high-res source, scaled to 256x256 for ICO
+hires = None  # -r <file>: high-res source (z.B. 1024px)
 
 args = sys.argv[1:]
 i = 0
@@ -18,7 +23,7 @@ while i < len(args):
         pass
     elif arg in ('-r', '--raw'):
         i += 1
-        hires = args[i]  # capture the high-res PNG (e.g. 1024px)
+        hires = args[i]
     elif arg in ('-o', '--output'):
         i += 1
         output = args[i]
@@ -30,13 +35,21 @@ if not output or not inputs:
     print("Usage: icotool-shim.py -c -o output.ico [-r hires.png] input.png ...", file=sys.stderr)
     sys.exit(1)
 
-images = [Image.open(p).convert('RGBA') for p in inputs]
+# Standard-ICO-Groessen (Windows Explorer nutzt u.a. 16/32/48/256)
+ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 
-# Add 256x256 version from high-res source (ICO max size = 256px)
+# Hoechstaufgeloeste verfuegbare Quelle ermitteln und als Basis nehmen,
+# damit Pillow von DORT herunterskaliert statt von einem kleinen Input hochzuskalieren.
+candidates = [Image.open(p).convert('RGBA') for p in inputs]
 if hires:
-    hi = Image.open(hires).convert('RGBA')
-    images.append(hi.resize((256, 256), Image.LANCZOS))
+    candidates.append(Image.open(hires).convert('RGBA'))
 
-sizes = [(img.width, img.height) for img in images]
-images[0].save(output, format='ICO', append_images=images[1:], sizes=sizes)
-print(f"Created {output} with sizes {sizes}")
+base = max(candidates, key=lambda im: im.width * im.height)
+
+# Nur Groessen verwenden, die <= Basisbildgroesse sind (kein Hochskalieren)
+sizes = [s for s in ICO_SIZES if s[0] <= base.width and s[1] <= base.height]
+if not sizes:
+    sizes = [(base.width, base.height)]
+
+base.save(output, format='ICO', sizes=sizes)
+print(f"Created {output} from {base.width}x{base.height} base with sizes {sizes}")
