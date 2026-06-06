@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v11
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v12
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
