@@ -575,6 +575,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.VERSION }}-arm64
           name: Nextcloud ${{ env.VERSION }} ARM64 (inoffiziell)
+          overwrite: true
           body: >-
             Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
