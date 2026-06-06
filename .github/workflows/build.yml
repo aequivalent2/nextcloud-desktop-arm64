@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v10
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v11
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -585,7 +585,4 @@ jobs:
             Systemvoraussetzungen: Windows 11 ARM64 oder Windows 10 ARM64 ab Version 1903.
             Alle Abhaengigkeiten sind enthalten (Qt 6.11.1, OpenSSL 3.3, MSVC Runtime, libp11).
 
-            Hinweis: Dies ist kein offizielles Nextcloud-Produkt.
-            Offizielle Builds unter https://nextcloud.com/install/
-          files: |
-            Nextcloud-*-arm64.msi
+            Hinweis: 
