@@ -67,6 +67,15 @@ jobs:
           key: talk-spreed-node-${{ hashFiles('C:\build\talk-desktop\spreed\package-lock.json') }}-v1
           restore-keys: talk-spreed-node-
 
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          choco install wixtoolset -y --no-progress
+          $wixBin = (Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory |
+            Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName) + "\bin"
+          $wixBin | Add-Content $env:GITHUB_PATH
+          Write-Host "WiX: $wixBin"
+
       - name: Install dependencies
         shell: pwsh
         run: |
