@@ -591,5 +591,5 @@ jobs:
           body: >-
             Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
-          files: "${{ github.workspace }}\Nextcloud-*-arm64.msi"
+          files: Nextcloud-*-arm64.msi
           fail_on_unmatched_files: true
