@@ -502,6 +502,10 @@ jobs:
           # Nextcloud.ico generieren (Nextcloud.wxs braucht es im HarvestAppDir)
           # Verwendet .NET System.Drawing – kein externes Tool nötig
           $icoTarget = "C:\build\nextcloud-arm64\bin\Nextcloud.ico"
+          if (Test-Path $icoTarget) {
+            Remove-Item -Force $icoTarget
+            Write-Host "Altes Nextcloud.ico entfernt - wird neu generiert"
+          }
           if (-not (Test-Path $icoTarget)) {
             Add-Type -AssemblyName System.Drawing
             $pngSizes  = @(256, 128, 64, 48, 32, 16)
@@ -510,13 +514,15 @@ jobs:
               "C:\build\nextcloud-build\src\gui",
               "C:\build\nextcloud-build"
             )
+            # Ueber ALLE Verzeichnisse hinweg jede Groesse genau einmal sammeln
+            # (statt frueh abzubrechen, sobald 2 Dateien gefunden wurden - das
+            # konnte dazu fuehren, dass das 256px-Bild nie aufgenommen wurde).
             $pngFiles = @()
-            foreach ($dir in $pngDirs) {
-              foreach ($sz in $pngSizes) {
+            foreach ($sz in $pngSizes) {
+              foreach ($dir in $pngDirs) {
                 $f = "$dir\${sz}-Nextcloud-icon.png"
-                if (Test-Path $f) { $pngFiles += $f }
+                if (Test-Path $f) { $pngFiles += $f; break }
               }
-              if ($pngFiles.Count -ge 2) { break }
             }
             if ($pngFiles.Count -gt 0) {
               $images = @(); $imageData = @()
