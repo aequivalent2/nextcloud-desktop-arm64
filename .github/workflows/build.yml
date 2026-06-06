@@ -176,28 +176,16 @@ jobs:
             $chocoBin = "C:\ProgramData\chocolatey\bin"
             if (Test-Path $chocoBin) { $chocoBin | Add-Content $env:GITHUB_PATH }
           }
-          # ImageMagick: PNG → ICO
-          choco install imagemagick.tool -y --no-progress
-          $imDir = Get-ChildItem "C:\Program Files\ImageMagick*" -Directory -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $imDir) {
-            $magick = Get-Command magick -ErrorAction SilentlyContinue
-            if ($magick) { $imDir = Split-Path $magick.Source }
-          }
-          if ($imDir) {
-            $imDir | Add-Content $env:GITHUB_PATH
-            "MAGICK_HOME=$imDir" | Add-Content $env:GITHUB_ENV
-            Write-Host "ImageMagick: $imDir"
-          } else {
-            Write-Warning "ImageMagick nicht gefunden"
-          }
+          # Pillow: PNG → ICO (kein ImageMagick nötig, keine Registry-Probleme)
+          pip install Pillow --quiet
 
-          # icotool-Shim: ECMAddAppIcon ruft 'icotool --create -o out.ico in.png...' auf
-          # scripts/icotool-shim.bat leitet das an ImageMagick weiter
+          # icotool-Shim: ECMAddAppIcon ruft 'icotool -c -o out.ico in.png...' auf
+          # scripts/icotool-shim.bat + icotool-shim.py erledigen das via Python/Pillow
           $shimDir = "C:\tools\icotool-shim"
           New-Item -ItemType Directory -Force $shimDir | Out-Null
           Copy-Item "$env:GITHUB_WORKSPACE\scripts\icotool-shim.bat" "$shimDir\icotool.bat"
           Copy-Item "$env:GITHUB_WORKSPACE\scripts\icotool-shim.bat" "$shimDir\icotool.cmd"
+          Copy-Item "$env:GITHUB_WORKSPACE\scripts\icotool-shim.py"  "$shimDir\icotool-shim.py"
           $shimDir | Add-Content $env:GITHUB_PATH
           Write-Host "icotool-Shim installiert: $shimDir\icotool.cmd"
 
