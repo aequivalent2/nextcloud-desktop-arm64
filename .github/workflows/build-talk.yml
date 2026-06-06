@@ -30,13 +30,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
 
       - name: Clone Talk Desktop source
         shell: pwsh
         run: |
-          git clone --depth 1 --branch $env:VERSION https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
-          Write-Host "Talk Desktop $env:VERSION geklont"
+          # main klonen wegen ARM64-Build-Scripts (ab PR #1725, nach v2.1.2 gemerged)
+          git clone --depth 1 https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
+          Write-Host "Talk Desktop main geklont (enthält ARM64-Build-Scripts)"
 
       - name: Clone Talk (spreed) source
         shell: pwsh
@@ -56,13 +57,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\talk-desktop\node_modules
-          key: talk-desktop-node-${{ steps.talk-version.outputs.version }}-v1
+          key: talk-desktop-node-main-v1
 
       - name: Cache node_modules (spreed)
         uses: actions/cache@v4
         with:
           path: C:\build\talk-desktop\spreed\node_modules
-          key: talk-spreed-node-${{ steps.talk-version.outputs.version }}-v1
+          key: talk-spreed-node-main-v1
 
       - name: Install dependencies
         shell: pwsh

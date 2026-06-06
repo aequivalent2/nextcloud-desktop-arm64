@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v12
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v13
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -569,13 +569,25 @@ jobs:
           $mb = [math]::Round((Get-Item $dest).Length / 1MB, 1)
           Write-Host "MSI: $dest ($mb MB)"
 
+      - name: Delete existing release assets
+        shell: pwsh
+        run: |
+          $tag = "$env:VERSION-arm64"
+          $headers = @{ Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"; "User-Agent" = "nextcloud-arm64-builder" }
+          $release = Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers $headers -ErrorAction SilentlyContinue
+          if ($release) {
+            foreach ($asset in $release.assets) {
+              Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/assets/$($asset.id)" -Method Delete -Headers $headers
+              Write-Host "Gelöscht: $($asset.name)"
+            }
+          }
+
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.VERSION }}-arm64
           name: Nextcloud ${{ env.VERSION }} ARM64 (inoffiziell)
-          overwrite: true
           body: >-
             Nextcloud Desktop ARM64 - Inoffizieller Build fuer Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
