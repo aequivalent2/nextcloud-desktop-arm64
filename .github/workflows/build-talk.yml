@@ -26,7 +26,6 @@ jobs:
           Write-Host "Neuester Release: $version"
           echo "VERSION=$version" >> $env:GITHUB_ENV
           echo "version=$version" >> $env:GITHUB_OUTPUT
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -35,27 +34,9 @@ jobs:
       - name: Clone Talk Desktop source
         shell: pwsh
         run: |
-          # Stable Release-Tag klonen (Produktionscode, kein dev/main)
-          git clone --depth 1 --branch $env:VERSION https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
-          Write-Host "Talk Desktop $env:VERSION geklont (stable)"
-
-          # Das stable Tag enthält die ARM64-Build-Scripts evtl. noch nicht (erst ab PR #1725,
-          # nach v2.1.2 in main gemerged). Falls der Script fehlt, NUR die paar Build-Plumbing-
-          # Dateien aus main nachziehen (Pinning bleibt stable) statt komplett auf main zu bauen.
-          $pkg = Get-Content "C:\build\talk-desktop\package.json" -Raw | ConvertFrom-Json
-          if (-not ($pkg.scripts.PSObject.Properties.Name -contains 'package:windows:arm64')) {
-            Write-Host "ARM64-Build-Scripts fehlen im stable Tag $env:VERSION - hole sie selektiv aus main nach"
-            git -C C:\build\talk-desktop fetch --depth 1 origin main
-            # Kompletten build/-Ordner + Konfig-Dateien aus main übernehmen,
-            # damit alle gegenseitigen require()-Abhängigkeiten (z.B. appinfo.utils.js) mitkommen.
-            foreach ($f in 'package.json','package-lock.json','forge.config.js','webpack.main.config.js','webpack.renderer.config.js','build') {
-              git -C C:\build\talk-desktop checkout FETCH_HEAD -- $f 2>$null
-              if ($LASTEXITCODE -eq 0) { Write-Host "Übernommen aus main: $f" }
-            }
-          } else {
-            Write-Host "ARM64-Build-Scripts bereits in $env:VERSION enthalten"
-          }
-
+          # main klonen wegen ARM64-Build-Scripts (ab PR #1725, nach v2.1.2 gemerged)
+          git clone --depth 1 https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
+          Write-Host "Talk Desktop main geklont (enthält ARM64-Build-Scripts)"
       - name: Clone Talk (spreed) source
         shell: pwsh
         run: |
@@ -69,7 +50,6 @@ jobs:
           }
           # TALK_PATH setzen damit forge.config.js den Spreed-Pfad findet
           echo "TALK_PATH=C:\build\talk-desktop\spreed" >> $env:GITHUB_ENV
-
       - name: Cache node_modules (talk-desktop)
         uses: actions/cache@v4
         with:
@@ -92,14 +72,12 @@ jobs:
             Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName) + "\bin"
           $wixBin | Add-Content $env:GITHUB_PATH
           Write-Host "WiX: $wixBin"
-
       - name: Install dependencies
         shell: pwsh
         run: |
           Set-Location C:\build\talk-desktop
           npm ci
           npm ci --prefix=spreed
-
       - name: Build Talk Desktop ARM64
         shell: pwsh
         env:
@@ -111,7 +89,6 @@ jobs:
           # Dann Installer erstellen (exe + msi)
           npm run package:windows:arm64
           Write-Host "Build abgeschlossen"
-
       - name: Delete existing release assets
         shell: pwsh
         run: |
@@ -124,7 +101,6 @@ jobs:
               Write-Host "Gelöscht: $($asset.name)"
             }
           }
-
       - name: Find and copy artifacts
         shell: pwsh
         run: |
@@ -135,7 +111,6 @@ jobs:
               Copy-Item $_.FullName $dest -Force
               Write-Host "Kopiert: $dest ($([math]::Round($_.Length/1MB,1)) MB)"
             }
-
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
@@ -145,7 +120,7 @@ jobs:
           body: >-
             Nextcloud Talk Desktop ARM64 - Inoffizieller Build für Windows on ARM
             (Surface Pro X, Snapdragon X Elite, etc.).
-            Gebaut aus dem offiziellen stabilen Nextcloud Talk Desktop Release ${{ env.VERSION }}.
+            Gebaut aus dem offiziellen Nextcloud Talk Desktop Quellcode (main-Branch).
           files: |
             Nextcloud*arm64*.exe
             Nextcloud*arm64*.msi
