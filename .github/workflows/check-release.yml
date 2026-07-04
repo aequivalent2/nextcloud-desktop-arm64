@@ -5,6 +5,9 @@ on:
     - cron: '0 8 * * *'
   workflow_dispatch:
 
+permissions:
+  actions: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -35,8 +38,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'build.yml',
-              ref: 'main',
-              inputs: {
-                nextcloud_version: '${{ steps.nextcloud.outputs.version }}'
-              }
+              ref: 'main'
             });
