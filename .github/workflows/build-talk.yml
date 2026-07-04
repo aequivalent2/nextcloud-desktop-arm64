@@ -68,9 +68,12 @@ jobs:
         shell: pwsh
         run: |
           choco install wixtoolset -y --no-progress
-          $wixBin = (Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory |
-            Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName) + "\bin"
+          $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory |
+            Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+          $wixBin = "$wixPath\bin"
           $wixBin | Add-Content $env:GITHUB_PATH
+          # electron-wix-msi sucht WiX über $env:WIX – ohne diese Variable findet es candle/light nicht
+          echo "WIX=$wixPath" >> $env:GITHUB_ENV
           Write-Host "WiX: $wixBin"
       - name: Install dependencies
         shell: pwsh

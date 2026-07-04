@@ -40,11 +40,19 @@ ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256,
 
 # Hoechstaufgeloeste verfuegbare Quelle ermitteln und als Basis nehmen,
 # damit Pillow von DORT herunterskaliert statt von einem kleinen Input hochzuskalieren.
-candidates = [Image.open(p).convert('RGBA') for p in inputs]
+print(f"icotool-shim: output={output}", file=sys.stderr)
+candidates = []
+for p in inputs:
+    im = Image.open(p).convert('RGBA')
+    print(f"  input:  {p} -> {im.width}x{im.height}", file=sys.stderr)
+    candidates.append(im)
 if hires:
-    candidates.append(Image.open(hires).convert('RGBA'))
+    im = Image.open(hires).convert('RGBA')
+    print(f"  -r/raw: {hires} -> {im.width}x{im.height}", file=sys.stderr)
+    candidates.append(im)
 
 base = max(candidates, key=lambda im: im.width * im.height)
+print(f"  -> using {base.width}x{base.height} as base for downscaling", file=sys.stderr)
 
 # Nur Groessen verwenden, die <= Basisbildgroesse sind (kein Hochskalieren)
 sizes = [s for s in ICO_SIZES if s[0] <= base.width and s[1] <= base.height]

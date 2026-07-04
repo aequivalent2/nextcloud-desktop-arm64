@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\nextcloud-arm64
-          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v16
+          key: nc-arm64-${{ steps.nc-version.outputs.version }}-qt6.11.1-v17
 
       # ── Toolchain-Setup (nur bei Cache-Miss) ───────────────────────────────
       - name: Setup MSVC ARM64
@@ -580,7 +580,7 @@ jobs:
         run: |
           $tag = "$env:VERSION-arm64"
           $headers = @{ Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"; "User-Agent" = "nextcloud-arm64-builder" }
-          $release = Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers $headers -ErrorAction SilentlyContinue
+          try { $release = Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers $headers } catch { $release = $null }
           if ($release) {
             foreach ($asset in $release.assets) {
               Invoke-RestMethod "https://api.github.com/repos/${{ github.repository }}/releases/assets/$($asset.id)" -Method Delete -Headers $headers
