@@ -156,7 +156,14 @@ jobs:
           choco install wixtoolset -y --no-progress
           $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory -ErrorAction SilentlyContinue |
             Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $wixPath) { throw "WiX Toolset nicht gefunden nach Installation" }
+          if (-not $wixPath) {
+            Write-Warning "Chocolatey fehlgeschlagen - lade WiX direkt von GitHub herunter"
+            $wixZip = "$env:TEMP\wix314.zip"
+            Invoke-WebRequest "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" -OutFile $wixZip
+            $wixPath = "C:\Program Files (x86)\WiX Toolset v3.14"
+            New-Item -ItemType Directory -Force $wixPath | Out-Null
+            Expand-Archive $wixZip -DestinationPath "$wixPath\bin" -Force
+          }
           $wixBin = Join-Path $wixPath "bin"
           $wixBin | Add-Content $env:GITHUB_PATH
           # WIX env var wird von cmake (NCMsiHelper) und make-msi.bat benötigt

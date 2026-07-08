@@ -68,8 +68,16 @@ jobs:
         shell: pwsh
         run: |
           choco install wixtoolset -y --no-progress
-          $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory |
+          $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -Directory -ErrorAction SilentlyContinue |
             Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $wixPath) {
+            Write-Warning "Chocolatey fehlgeschlagen - lade WiX direkt von GitHub herunter"
+            $wixZip = "$env:TEMP\wix314.zip"
+            Invoke-WebRequest "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" -OutFile $wixZip
+            $wixPath = "C:\Program Files (x86)\WiX Toolset v3.14"
+            New-Item -ItemType Directory -Force $wixPath | Out-Null
+            Expand-Archive $wixZip -DestinationPath "$wixPath\bin" -Force
+          }
           $wixBin = "$wixPath\bin"
           $wixBin | Add-Content $env:GITHUB_PATH
           # electron-wix-msi sucht WiX über $env:WIX – ohne diese Variable findet es candle/light nicht
