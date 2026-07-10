@@ -102,6 +102,25 @@ jobs:
           path: C:\Qt
           key: qt-6.11.1-arm64-msvc2022-shadertools-v5
 
+      - name: Install 7-Zip (externer Extractor fuer aqt)
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          # aqtinstall nutzt standardmaessig py7zr zum Entpacken. py7zr bricht bei
+          # bestimmten 7z-Archiven (u.a. qtdeclarative, wegen der eingebetteten
+          # qtgraphicaleffects-cmake-Dateien) mit "Bad7zFile: Specified path is bad"
+          # ab. Das echte 7-Zip via --external umgeht diesen py7zr-Bug.
+          choco install 7zip -y --no-progress
+          $found = Get-Command 7z.exe -ErrorAction SilentlyContinue
+          if (-not $found) {
+            $sevenZipPath = "C:\Program Files\7-Zip"
+            if (Test-Path "$sevenZipPath\7z.exe") {
+              $sevenZipPath | Add-Content $env:GITHUB_PATH
+            } else {
+              throw "7-Zip konnte nicht installiert werden"
+            }
+          }
+
       - name: Install Qt ARM64
         if: steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
@@ -110,9 +129,14 @@ jobs:
           # verfügbar – nur über Qt Maintenance Tool mit Qt-Account. Build daher ohne WebEngine.
           echo "NO_WEBENGINE=1" >> $env:GITHUB_ENV
 
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue)?.Source
+          if (-not $sevenZip) { $sevenZip = "C:\Program Files\7-Zip\7z.exe" }
+          Write-Host "Nutze externen 7z-Extractor: $sevenZip"
+
           python -m aqt install-qt windows_arm64 desktop 6.11.1 win64_msvc2022_arm64 `
             --outputdir C:\Qt `
-            --modules qt5compat qtpositioning qtwebsockets qtshadertools
+            --modules qt5compat qtpositioning qtwebsockets qtshadertools `
+            --external $sevenZip
           if ($LASTEXITCODE -ne 0) { throw "Qt-Installation fehlgeschlagen" }
 
       - name: Detect Qt ARM64 path
