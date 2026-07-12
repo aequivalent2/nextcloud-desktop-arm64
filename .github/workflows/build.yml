@@ -276,7 +276,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\build\libp11-arm64
-          key: libp11-0.4.12-arm64-v6
+          key: libp11-0.4.12-arm64-v7
 
       - name: Build libp11
         if: steps.cache-libp11.outputs.cache-hit != 'true'
