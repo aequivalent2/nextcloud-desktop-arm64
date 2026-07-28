@@ -315,8 +315,20 @@ jobs:
         shell: pwsh
         run: |
           Set-Location C:\build\nextcloud-src
-          git apply $env:GITHUB_WORKSPACE\patches\001-cmake-optional-type.patch
           Copy-Item $env:GITHUB_WORKSPACE\patches\libp11-headers\* src\libsync\
+
+          # 001-cmake-optional-type.patch als -replace statt "git apply":
+          # git apply scheitert auf dem Windows-Runner zuverlässig an CRLF/Checkout-
+          # Eigenheiten (Inhalt selbst stimmt mit dem Upstream-Release überein,
+          # siehe Analyse vom 2026-07-28) - gleiches Muster wie die restlichen
+          # Patches unten, daher hier konsistent auf -replace umgestellt.
+          # Achtung: im Replacement-String ist "${...}" fuer .NET-Regex eine
+          # Named-Group-Referenz - deshalb "$" dort als "$$" escapen, sonst
+          # wirft -replace "Reference to undefined group name".
+          (Get-Content "CMakeLists.txt" -Raw) `
+            -replace 'find_package\(Qt\$\{QT_VERSION_MAJOR\}WebEngineCore \$\{REQUIRED_QT_VERSION\} CONFIG QUIET\)',
+                     'find_package(Qt$${QT_VERSION_MAJOR}WebEngineCore $${REQUIRED_QT_VERSION} CONFIG)' |
+            Set-Content "CMakeLists.txt"
 
           (Get-Content "CMakeLists.txt") `
             -replace 'pkg_check_modules\(OPENSC-LIBP11 libp11 REQUIRED IMPORTED_TARGET\)',
