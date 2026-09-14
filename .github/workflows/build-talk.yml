@@ -96,9 +96,9 @@ jobs:
         run: |
           Set-Location C:\build\talk-desktop
           # Erst packen (erzeugt out\Nextcloud Talk-win32-arm64\)
-          npm run build:windows:arm64
+          npm run build:windows:arm64:exe
           # Dann Installer erstellen (exe + msi)
-          npm run package:windows:arm64
+          npm run package:windows:arm64:exe
           Write-Host "Build abgeschlossen"
       - name: Delete existing release assets
         shell: pwsh
