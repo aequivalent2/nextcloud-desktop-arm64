@@ -96,9 +96,12 @@ jobs:
         run: |
           Set-Location C:\build\talk-desktop
           # Erst packen (erzeugt out\Nextcloud Talk-win32-arm64\)
-          npm run build:windows:arm64:exe
-          # Dann Installer erstellen (exe + msi)
+          npm run build:windows:arm64
+          if ($LASTEXITCODE -ne 0) { throw "build:windows:arm64 fehlgeschlagen ($LASTEXITCODE)" }
+          if (-not (Test-Path "out\Nextcloud Talk-win32-arm64")) { throw "Gepackte App fehlt in out\" }
+          # Dann Installer erstellen (nur exe, MSI wird blockiert)
           npm run package:windows:arm64:exe
+          if ($LASTEXITCODE -ne 0) { throw "package:windows:arm64:exe fehlgeschlagen ($LASTEXITCODE)" }
           Write-Host "Build abgeschlossen"
       - name: Delete existing release assets
         shell: pwsh
