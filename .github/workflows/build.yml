@@ -69,16 +69,32 @@ jobs:
           $sdkBin = "C:\Program Files (x86)\Windows Kits\10\bin\$sdkVer\arm64"
           $sdkInc = "C:\Program Files (x86)\Windows Kits\10\Include\$sdkVer"
           $sdkLib = "C:\Program Files (x86)\Windows Kits\10\Lib\$sdkVer"
-          $vsVer  = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC" |
-                      Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name
-          $msvcLib = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\lib\arm64"
-          $msvcInc = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\include"
+          # VS-Installation dynamisch finden (Runner-Image wechselt zwischen VS 2022 / VS 2026 "18")
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath  = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+          if (-not $vsPath) { $vsPath = & $vswhere -latest -products * -property installationPath }
+          if (-not $vsPath) { throw "Keine Visual-Studio-Installation gefunden" }
+          $msvcRoot = Join-Path $vsPath "VC\Tools\MSVC"
+          $vsVer  = Get-ChildItem $msvcRoot | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name
+          $msvcDir = Join-Path $msvcRoot $vsVer
+          $msvcLib = "$msvcDir\lib\arm64"
+          $msvcInc = "$msvcDir\include"
+          if (-not (Test-Path "C:\Program Files (x86)\Windows Kits\10\Include\$sdkVer")) {
+            $sdkVer = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory |
+                        Where-Object Name -like "10.*" | Sort-Object { [version]$_.Name } -Descending |
+                        Select-Object -First 1 -ExpandProperty Name
+            $sdkBin = "C:\Program Files (x86)\Windows Kits\10\bin\$sdkVer\arm64"
+            $sdkInc = "C:\Program Files (x86)\Windows Kits\10\Include\$sdkVer"
+            $sdkLib = "C:\Program Files (x86)\Windows Kits\10\Lib\$sdkVer"
+          }
           "$sdkBin" | Add-Content $env:GITHUB_PATH
           $libPath = "$sdkLib\um\arm64;$sdkLib\ucrt\arm64;$msvcLib"
           $incPath = "$msvcInc;$sdkInc\ucrt;$sdkInc\um;$sdkInc\shared;$sdkInc\winrt;$sdkInc\cppwinrt"
           echo "LIB=$libPath"     >> $env:GITHUB_ENV
           echo "INCLUDE=$incPath" >> $env:GITHUB_ENV
           echo "VSVER=$vsVer"     >> $env:GITHUB_ENV
+          echo "MSVCDIR=$msvcDir" >> $env:GITHUB_ENV
+          Write-Host "VS Path: $vsPath"
           Write-Host "SDK Version: $sdkVer"
           Write-Host "MSVC Version: $vsVer"
 
@@ -467,8 +483,7 @@ jobs:
             foreach ($dll in $fallback) { Copy-Item $dll.FullName "$BinDir\" -Force }
           }
 
-          $vsVer   = $env:VSVER
-          $msvcBin = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\$vsVer\bin\Hostarm64\arm64"
+          $msvcBin = "$env:MSVCDIR\bin\Hostarm64\arm64"
           @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll","msvcp140_1.dll","msvcp140_2.dll","concrt140.dll") | ForEach-Object {
             $src = Join-Path $msvcBin $_
             if (Test-Path $src) { Copy-Item $src "$BinDir\" -Force; Write-Host "Runtime: $_" }
