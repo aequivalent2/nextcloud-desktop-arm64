@@ -37,32 +37,12 @@ jobs:
           # main klonen wegen ARM64-Build-Scripts (ab PR #1725, nach v2.1.2 gemerged)
           git clone --depth 1 https://github.com/nextcloud/talk-desktop.git C:\build\talk-desktop
           Write-Host "Talk Desktop main geklont (enthält ARM64-Build-Scripts)"
-      - name: Clone Talk (spreed) source
-        shell: pwsh
-        run: |
-          $pkg = Get-Content "C:\build\talk-desktop\package.json" | ConvertFrom-Json
-          $spreedVersion = $pkg.talk.stable
-          Write-Host "Spreed Version: $spreedVersion"
-          git clone --depth 1 --branch $spreedVersion https://github.com/nextcloud/spreed.git C:\build\talk-desktop\spreed 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Branch $spreedVersion nicht gefunden, verwende main"
-            git clone --depth 1 https://github.com/nextcloud/spreed.git C:\build\talk-desktop\spreed
-          }
-          # TALK_PATH setzen damit forge.config.js den Spreed-Pfad findet
-          echo "TALK_PATH=C:\build\talk-desktop\spreed" >> $env:GITHUB_ENV
       - name: Cache node_modules (talk-desktop)
         uses: actions/cache@v4
         with:
           path: C:\build\talk-desktop\node_modules
           key: talk-desktop-node-${{ hashFiles('C:\build\talk-desktop\package-lock.json') }}-v1
           restore-keys: talk-desktop-node-
-
-      - name: Cache node_modules (spreed)
-        uses: actions/cache@v4
-        with:
-          path: C:\build\talk-desktop\spreed\node_modules
-          key: talk-spreed-node-${{ hashFiles('C:\build\talk-desktop\spreed\package-lock.json') }}-v1
-          restore-keys: talk-spreed-node-
 
       - name: Install WiX Toolset
         shell: pwsh
@@ -87,12 +67,10 @@ jobs:
         shell: pwsh
         run: |
           Set-Location C:\build\talk-desktop
+          # Talk (spreed) kommt als npm-Dependency "talk" mit (node_modules/talk) - kein separater Clone noetig
           npm ci
-          npm ci --prefix=spreed
       - name: Build Talk Desktop ARM64
         shell: pwsh
-        env:
-          TALK_PATH: C:\build\talk-desktop\spreed
         run: |
           Set-Location C:\build\talk-desktop
           # Erst packen (erzeugt out\Nextcloud Talk-win32-arm64\)
